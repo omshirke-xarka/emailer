@@ -1,47 +1,17 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import ContactTable from '../components/ContactTable';
 import DynamicContactTable from '../components/DynamicContactTable';
-import FilterBar from '../components/FilterBar';
 import {
-  getContacts,
-  getFilterOptions,
-  uploadContactsCsv,
+
   getContactLists,
   createContactList,
   getContactsForList,
   uploadCsvToList,
   deleteContactList,
 } from '../api/client';
-import type { Contact, ContactList, DynamicContact } from '../types';
+import type { ContactList, DynamicContact } from '../types';
 
-function MetricCards({ contacts }: { contacts: Contact[] }) {
-  const stats = useMemo(() => {
-    const total = contacts.length;
-    const subscribed = contacts.filter((c) => c.subscribed === 'Yes').length;
-    const plusPlan = contacts.filter((c) => c.plan === 'Plus').length;
-    const today = new Date().toISOString().slice(0, 10);
-    const activeToday = contacts.filter((c) => c.last_login?.startsWith(today)).length;
-    return [
-      { label: 'Total Contacts', value: total, color: 'bg-blue-50 text-blue-700 border-blue-200' },
-      { label: 'Subscribed', value: subscribed, color: 'bg-green-50 text-green-700 border-green-200' },
-      { label: 'Plus Plan', value: plusPlan, color: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
-      { label: 'Active Today', value: activeToday, color: 'bg-amber-50 text-amber-700 border-amber-200' },
-    ];
-  }, [contacts]);
-
-  return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-      {stats.map((s) => (
-        <div key={s.label} className={`rounded-lg border p-4 ${s.color}`}>
-          <p className="text-xs font-semibold uppercase tracking-wide opacity-75">{s.label}</p>
-          <p className="text-2xl font-bold mt-1">{s.value.toLocaleString()}</p>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 function NewListModal({
   open,
@@ -199,22 +169,17 @@ function DeleteListModal({
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const [contacts, setContacts] = useState<Contact[]>([]);
   const [dynamicContacts, setDynamicContacts] = useState<DynamicContact[]>([]);
   const [dynamicColumns, setDynamicColumns] = useState<string[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [subscribed, setSubscribed] = useState('');
-  const [plan, setPlan] = useState('');
-  const [planOptions, setPlanOptions] = useState<string[]>([]);
-  const [subscribedOptions, setSubscribedOptions] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Contact lists
   const [contactLists, setContactLists] = useState<ContactList[]>([]);
-  const [activeList, setActiveList] = useState<string | null>(null); // null = default "All Contacts"
+  const [activeList, setActiveList] = useState<string>('all');
   const [showNewListModal, setShowNewListModal] = useState(false);
 
   // Debounce search input by 300ms
@@ -228,53 +193,25 @@ export default function Dashboard() {
     getContactLists().then(setContactLists).catch(() => {});
   }, []);
 
-  useEffect(() => {
-    if (activeList === null) {
-      getFilterOptions()
-        .then((opts) => {
-          setPlanOptions(opts.plans);
-          setSubscribedOptions(opts.subscribedValues);
-        })
-        .catch(() => {});
-    }
-  }, [activeList]);
-
   const fetchContacts = useCallback(async () => {
     try {
       const params: Record<string, string> = {};
       if (debouncedSearch) params.search = debouncedSearch;
       params.limit = '0';
 
-      if (activeList) {
-        const res = await getContactsForList(activeList, params);
-        setDynamicContacts(res.data);
-        setDynamicColumns(res.columns || []);
-        setContacts([]);
-      } else {
-        if (subscribed) params.subscribed = subscribed;
-        if (plan) params.plan = plan;
-        const res = await getContacts(params);
-        setContacts(res.data);
-        setDynamicContacts([]);
-        setDynamicColumns([]);
-      }
+      const res = await getContactsForList(activeList, params);
+      setDynamicContacts(res.data);
+      setDynamicColumns(res.columns || []);
     } catch {
       toast.error('Failed to load contacts');
     }
-  }, [debouncedSearch, subscribed, plan, activeList]);
+  }, [debouncedSearch, activeList]);
 
-  // Clear selection when dropdown filters change
-  useEffect(() => {
-    setSelectedIds(new Set());
-  }, [subscribed, plan]);
-
-  // Clear selection and filters when switching lists
+  // Clear selection and search when switching lists
   useEffect(() => {
     setSelectedIds(new Set());
     setSearch('');
     setDebouncedSearch('');
-    setSubscribed('');
-    setPlan('');
   }, [activeList]);
 
   useEffect(() => {
@@ -296,20 +233,11 @@ export default function Dashboard() {
     setUploading(true);
     try {
       const text = await file.text();
-      if (activeList) {
-        const result = await uploadCsvToList(activeList, text);
-        toast.success(`${result.new_contacts} new, ${result.updated_contacts} updated — ${result.contact_count} total contacts`);
-        setContactLists((prev) =>
-          prev.map((l) => l.id === activeList ? { ...l, contact_count: result.contact_count, columns: result.columns } : l)
-        );
-      } else {
-        const result = await uploadContactsCsv(text);
-        toast.success(`${result.new_contacts} new, ${result.updated_contacts} updated — ${result.contact_count} total contacts`);
-        getFilterOptions().then((opts) => {
-          setPlanOptions(opts.plans);
-          setSubscribedOptions(opts.subscribedValues);
-        });
-      }
+      const result = await uploadCsvToList(activeList, text);
+      toast.success(`${result.new_contacts} new, ${result.updated_contacts} updated — ${result.contact_count} total contacts`);
+      setContactLists((prev) =>
+        prev.map((l) => l.id === activeList ? { ...l, contact_count: result.contact_count, columns: result.columns } : l)
+      );
       setSelectedIds(new Set());
       fetchContacts();
     } catch {
@@ -331,7 +259,7 @@ export default function Dashboard() {
     try {
       await deleteContactList(deleteTarget.id);
       setContactLists((prev) => prev.filter((l) => l.id !== deleteTarget.id));
-      if (activeList === deleteTarget.id) setActiveList(null);
+      if (activeList === deleteTarget.id) setActiveList('all');
       toast.success(`Deleted "${deleteTarget.name}"`);
     } catch {
       toast.error('Failed to delete list');
@@ -374,16 +302,6 @@ export default function Dashboard() {
 
       {/* List tabs */}
       <div className="flex items-center gap-1 mb-4 border-b border-gray-200 overflow-x-auto">
-        <button
-          onClick={() => setActiveList(null)}
-          className={`px-4 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-            activeList === null
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-          }`}
-        >
-          All Contacts
-        </button>
         {contactLists.map((list) => (
           <div key={list.id} className="flex items-center group">
             <button
@@ -397,98 +315,57 @@ export default function Dashboard() {
               {list.name}
               <span className="ml-1.5 text-xs text-gray-400">({list.contact_count})</span>
             </button>
-            <button
-              onClick={() => handleDeleteList(list.id, list.name)}
-              className="text-gray-300 hover:text-red-500 text-xs px-1 opacity-0 group-hover:opacity-100 transition-opacity"
-              title="Delete list"
-            >
-              ✕
-            </button>
+            {list.id !== 'all' && (
+              <button
+                onClick={() => handleDeleteList(list.id, list.name)}
+                className="text-gray-300 hover:text-red-500 text-xs px-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                title="Delete list"
+              >
+                ✕
+              </button>
+            )}
           </div>
         ))}
       </div>
 
-      {activeList ? (
-        <>
-          {/* Simple search bar for dynamic lists */}
-          <div className="mb-4 flex items-center gap-3">
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search contacts..."
-              className="w-full max-w-md border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
+      <>
+        {/* Search and selection controls */}
+        <div className="mb-4 flex items-center gap-3">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search contacts..."
+            className="w-full max-w-md border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+          <button
+            className="px-4 py-2 border border-gray-300 rounded text-sm font-medium text-gray-700 hover:bg-gray-100 whitespace-nowrap"
+            onClick={() => {
+              const allIds = dynamicContacts.map((c) => c.id as number);
+              const allSelected = allIds.length > 0 && allIds.every((id) => selectedIds.has(id));
+              setSelectedIds(allSelected ? new Set() : new Set(allIds));
+            }}
+          >
+            {dynamicContacts.length > 0 && dynamicContacts.every((c) => selectedIds.has(c.id as number))
+              ? 'Deselect All'
+              : 'Select All'}
+          </button>
+          {selectedIds.size > 0 && (
             <button
-              className="px-4 py-2 border border-gray-300 rounded text-sm font-medium text-gray-700 hover:bg-gray-100 whitespace-nowrap"
-              onClick={() => {
-                const allIds = dynamicContacts.map((c) => c.id as number);
-                const allSelected = allIds.length > 0 && allIds.every((id) => selectedIds.has(id));
-                setSelectedIds(allSelected ? new Set() : new Set(allIds));
-              }}
+              className="px-4 py-2 border border-red-300 rounded text-sm font-medium text-red-600 hover:bg-red-50 whitespace-nowrap"
+              onClick={() => setSelectedIds(new Set())}
             >
-              {dynamicContacts.length > 0 && dynamicContacts.every((c) => selectedIds.has(c.id as number))
-                ? 'Deselect All'
-                : 'Select All'}
+              Clear Selection
             </button>
-            {selectedIds.size > 0 && (
-              <button
-                className="px-4 py-2 border border-red-300 rounded text-sm font-medium text-red-600 hover:bg-red-50 whitespace-nowrap"
-                onClick={() => setSelectedIds(new Set())}
-              >
-                Clear Selection
-              </button>
-            )}
-          </div>
-          <DynamicContactTable
-            contacts={dynamicContacts}
-            columns={dynamicColumns}
-            selectedIds={selectedIds}
-            onSelectionChange={setSelectedIds}
-          />
-        </>
-      ) : (
-        <>
-          <MetricCards contacts={contacts} />
-          <FilterBar
-            search={search}
-            subscribed={subscribed}
-            plan={plan}
-            planOptions={planOptions}
-            subscribedOptions={subscribedOptions}
-            onSearchChange={setSearch}
-            onSubscribedChange={setSubscribed}
-            onPlanChange={setPlan}
-          />
-          <div className="mb-3 flex items-center gap-3">
-            <button
-              className="px-4 py-2 border border-gray-300 rounded text-sm font-medium text-gray-700 hover:bg-gray-100"
-              onClick={() => {
-                const allIds = contacts.map((c) => c.id);
-                const allSelected = allIds.length > 0 && allIds.every((id) => selectedIds.has(id));
-                setSelectedIds(allSelected ? new Set() : new Set(allIds));
-              }}
-            >
-              {contacts.length > 0 && contacts.every((c) => selectedIds.has(c.id))
-                ? 'Deselect All'
-                : 'Select All'}
-            </button>
-            {selectedIds.size > 0 && (
-              <button
-                className="px-4 py-2 border border-red-300 rounded text-sm font-medium text-red-600 hover:bg-red-50"
-                onClick={() => setSelectedIds(new Set())}
-              >
-                Clear Selection
-              </button>
-            )}
-          </div>
-          <ContactTable
-            contacts={contacts}
-            selectedIds={selectedIds}
-            onSelectionChange={setSelectedIds}
-          />
-        </>
-      )}
+          )}
+        </div>
+        <DynamicContactTable
+          contacts={dynamicContacts}
+          columns={dynamicColumns}
+          selectedIds={selectedIds}
+          onSelectionChange={setSelectedIds}
+        />
+      </>
 
       {selectedIds.size > 0 && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-indigo-600 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-4">

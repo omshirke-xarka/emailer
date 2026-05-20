@@ -213,44 +213,22 @@ class ContactsService:
         try:
             redis_client = await self._get_redis_client()
             lists_json = await redis_client.get(CONTACT_LISTS_KEY)
-            
+
             if not lists_json:
-                # Create default contact lists if none exist
-                default_lists = [
-                    ContactList(
-                        id="list1",
-                        name="Default Contacts",
-                        contact_count=666,  # Use actual contact count
-                        created_at="2024-01-01T00:00:00Z",
-                        columns=["Username", "Email", "First name", "Last name", "Subscribed", "Plan"]
-                    ),
-                    ContactList(
-                        id="list2",
-                        name="Premium Users",
-                        contact_count=0,  # Will be updated when we have premium users
-                        created_at="2024-01-01T00:00:00Z",
-                        columns=["Username", "Email", "First name", "Last name", "Plan", "Pages left"]
-                    )
-                ]
-                await redis_client.set(CONTACT_LISTS_KEY, json.dumps([list.dict() for list in default_lists]))
-                return default_lists
-            
-            lists_data = json.loads(lists_json)
+                return []
+
             valid_lists = []
-            
-            for list_data in lists_data:
+            for list_data in json.loads(lists_json):
                 try:
-                    contact_list = ContactList(**list_data)
-                    valid_lists.append(contact_list)
+                    valid_lists.append(ContactList(**list_data))
                 except Exception as e:
                     print(f"Skipping invalid contact list: {e}")
-                    continue
-            
+
             return valid_lists
         except Exception as e:
             print(f"Error getting contact lists: {e}")
             return []
-    
+
     async def get_contact_list_by_id(self, list_id: str) -> Optional[ContactList]:
         """Get contact list by ID"""
         lists = await self.get_contact_lists()
@@ -296,11 +274,12 @@ class ContactsService:
     async def get_contacts_for_list(self, list_id: str) -> List[DynamicContact]:
         """Get contacts for a specific list"""
         redis_client = await self._get_redis_client()
-        
-        contacts_json = await redis_client.get(f"contacts:list:{list_id}")
+
+        key = CONTACTS_KEY if list_id == "all" else f"contacts:list:{list_id}"
+        contacts_json = await redis_client.get(key)
         if not contacts_json:
             return []
-        
+
         return [DynamicContact(**contact_data) for contact_data in json.loads(contacts_json)]
     
     async def search_contacts_for_list(self, list_id: str, search: str = None, 

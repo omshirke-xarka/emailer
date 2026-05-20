@@ -90,7 +90,7 @@ export interface FilterOptions {
 export interface ContactList {
   id: string;
   name: string;
-  contactCount: number;
-  createdAt: string | null;
+  contact_count: number;
+  created_at: string | null;
   columns?: string[];
 }

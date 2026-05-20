@@ -177,21 +177,29 @@ def csv_to_contacts(csv_content: str) -> List[Contact]:
 def parse_dynamic_csv(content: str) -> Tuple[List[str], List[Dict[str, str]]]:
     """Parse CSV content for dynamic contact lists"""
     delimiter = '\t' if '\t' in content else ','
+    print(f"DEBUG: Detected delimiter: '{delimiter}'")
     
     # Use pandas for better CSV parsing
     try:
         df = pd.read_csv(io.StringIO(content), delimiter=delimiter)
         headers = df.columns.tolist()
         rows = df.to_dict('records')
+        print(f"DEBUG: Pandas parsing successful - {len(headers)} headers, {len(rows)} rows")
         return headers, rows
-    except Exception:
+    except Exception as e:
+        print(f"DEBUG: Pandas parsing failed: {e}")
         # Fallback to manual parsing
-        return parse_csv_lines(content)
+        result = parse_csv_lines(content)
+        print(f"DEBUG: Manual parsing fallback - {len(result[0])} headers, {len(result[1])} rows")
+        return result
 
 
 def csv_to_dynamic_contacts(csv_content: str) -> Tuple[List[str], List[DynamicContact]]:
     """Convert CSV content to dynamic contacts with columns"""
+    print(f"DEBUG: Processing CSV content with {len(csv_content)} characters")
     headers, rows = parse_dynamic_csv(csv_content)
+    print(f"DEBUG: Parsed headers: {headers}")
+    print(f"DEBUG: Parsed {len(rows)} rows")
     if not headers:
         return [], []
     

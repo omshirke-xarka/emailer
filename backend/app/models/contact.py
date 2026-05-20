@@ -1,5 +1,5 @@
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, EmailStr, validator, field_validator
+from pydantic import BaseModel, EmailStr, validator, field_validator, ConfigDict
 from datetime import datetime
 
 
@@ -40,16 +40,21 @@ class Contact(BaseModel):
 class ContactList(BaseModel):
     id: str
     name: str
-    contactCount: int = 0
-    createdAt: Optional[str] = None
+    contact_count: int = 0
+    created_at: Optional[str] = None
     columns: List[str] = []
+
+    def __init__(self, **data):
+        if 'contactCount' in data and 'contact_count' not in data:
+            data['contact_count'] = data.pop('contactCount')
+        if 'createdAt' in data and 'created_at' not in data:
+            data['created_at'] = data.pop('createdAt')
+        super().__init__(**data)
 
 
 class DynamicContact(BaseModel):
-    id: int
-    # Dynamic fields from CSV
-    # Additional dynamic fields from CSV
-    extra_fields: Dict[str, Any] = {}
+    model_config = ConfigDict(extra='allow')
+    id: int = 0
 
 
 class ContactListResponse(BaseModel):

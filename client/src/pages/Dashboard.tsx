@@ -72,7 +72,7 @@ function NewListModal({
     try {
       const text = await file.text();
       const list = await createContactList(name.trim(), text);
-      toast.success(`Created "${list.name}" with ${list.contactCount} contacts`);
+      toast.success(`Created "${list.name}" with ${list.contact_count} contacts`);
       onCreated(list);
       setName('');
       setFile(null);
@@ -298,13 +298,13 @@ export default function Dashboard() {
       const text = await file.text();
       if (activeList) {
         const result = await uploadCsvToList(activeList, text);
-        toast.success(`${result.newContacts} new, ${result.updatedContacts} updated — ${result.contactCount} total contacts`);
+        toast.success(`${result.new_contacts} new, ${result.updated_contacts} updated — ${result.contact_count} total contacts`);
         setContactLists((prev) =>
-          prev.map((l) => l.id === activeList ? { ...l, contactCount: result.contactCount, columns: result.columns } : l)
+          prev.map((l) => l.id === activeList ? { ...l, contact_count: result.contact_count, columns: result.columns } : l)
         );
       } else {
         const result = await uploadContactsCsv(text);
-        toast.success(`${result.newContacts} new, ${result.updatedContacts} updated — ${result.contactCount} total contacts`);
+        toast.success(`${result.new_contacts} new, ${result.updated_contacts} updated — ${result.contact_count} total contacts`);
         getFilterOptions().then((opts) => {
           setPlanOptions(opts.plans);
           setSubscribedOptions(opts.subscribedValues);
@@ -395,7 +395,7 @@ export default function Dashboard() {
               }`}
             >
               {list.name}
-              <span className="ml-1.5 text-xs text-gray-400">({list.contactCount})</span>
+              <span className="ml-1.5 text-xs text-gray-400">({list.contact_count})</span>
             </button>
             <button
               onClick={() => handleDeleteList(list.id, list.name)}

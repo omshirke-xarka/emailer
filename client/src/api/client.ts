@@ -23,7 +23,7 @@ export const getFilterOptions = () =>
   api.get<FilterOptions>('/contacts/filters').then((r) => r.data);
 
 export const uploadContactsCsv = (csv: string) =>
-  api.post<{ contactCount: number; newContacts: number; updatedContacts: number }>('/contacts/upload-csv', { csv }).then((r) => r.data);
+  api.post<{ contact_count: number; new_contacts: number; updated_contacts: number }>('/contacts/upload-csv', { csv }).then((r) => r.data);
 
 // Contact Lists
 export const getContactLists = () =>
@@ -36,7 +36,7 @@ export const getContactsForList = (listId: string, params?: Record<string, strin
   api.get<DynamicContactsResponse>(`/contacts/lists/${listId}`, { params }).then((r) => r.data);
 
 export const uploadCsvToList = (listId: string, csv: string) =>
-  api.post<{ contactCount: number; newContacts: number; updatedContacts: number; columns: string[] }>(`/contacts/lists/${listId}/upload-csv`, { csv }).then((r) => r.data);
+  api.post<{ contact_count: number; new_contacts: number; updated_contacts: number; columns: string[] }>(`/contacts/lists/${listId}/upload-csv`, { csv }).then((r) => r.data);
 
 export const deleteContactList = (listId: string) =>
   api.delete(`/contacts/lists/${listId}`);

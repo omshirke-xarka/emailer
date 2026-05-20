@@ -3,11 +3,18 @@ Contacts API routes
 """
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
 from app.data.contacts import contacts_service
 from app.models.contact import (
     Contact, ContactList, ContactListResponse, ContactListDynamicResponse,
     ContactFilterValues, ContactUploadResponse
 )
+
+# Contact Lists endpoints
+
+class ContactListCreate(BaseModel):
+    name: str = Field(..., min_length=1, description="Contact list name")
+    csv: str = Field(..., min_length=1, description="CSV content for contacts")
 
 router = APIRouter()
 
@@ -58,10 +65,10 @@ async def get_contact_lists():
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/lists", response_model=ContactList)
-async def create_contact_list(name: str, csv: str):
+async def create_contact_list(request: ContactListCreate):
     """Create a new contact list from CSV"""
     try:
-        return await contacts_service.create_contact_list(name, csv)
+        return await contacts_service.create_contact_list(request.name, request.csv)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -72,7 +79,7 @@ async def get_contacts_for_list(
     list_id: str,
     search: Optional[str] = Query(None, description="Search contacts"),
     page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(50, ge=1, le=1000, description="Items per page")
+    limit: int = Query(50, ge=0, le=1000, description="Items per page")
 ):
     """Get contacts for a specific list"""
     try:

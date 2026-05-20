@@ -258,7 +258,9 @@ class ContactsService:
     
     async def create_contact_list(self, name: str, csv_content: str) -> ContactList:
         """Create a new contact list from CSV"""
+        print(f"DEBUG: Creating contact list '{name}' with CSV content")
         columns, contacts = csv_to_dynamic_contacts(csv_content)
+        print(f"DEBUG: Got {len(contacts)} contacts from CSV")
         if not contacts:
             raise ValueError("CSV contains no valid contacts")
         
@@ -310,8 +312,8 @@ class ContactsService:
         if search:
             search_lower = search.lower()
             filtered_contacts = [
-                c for c in all_contacts 
-                if any(str(v).lower().contains(search_lower) for v in c.dict().values() if v is not None)
+                c for c in all_contacts
+                if any(search_lower in str(v).lower() for v in c.dict().values() if v is not None)
             ]
         else:
             filtered_contacts = all_contacts

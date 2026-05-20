@@ -15,7 +15,7 @@ from app.models.email import (
 
 router = APIRouter()
 
-@router.get("/", response_model=EmailListResponse)
+@router.get("", response_model=EmailListResponse)
 async def list_emails():
     """List sent emails with aggregate stats"""
     try:

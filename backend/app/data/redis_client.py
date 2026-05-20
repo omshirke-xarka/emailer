@@ -66,7 +66,7 @@ class RedisClient:
     async def mget(self, *keys):
         """Get multiple values"""
         await self.connect()
-        return await self.redis.mget(keys)
+        return await self.redis.mget(*keys)
     
     async def exists(self, key: str):
         """Check if key exists"""

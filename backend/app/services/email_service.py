@@ -44,6 +44,8 @@ class EmailService:
             'body_html': body_html,
             'template_id': template_id,
             'sender_email': self.settings.sender_email,
+            'contact_ids': contact_ids,
+            'list_id': list_id,
         })
         
         sent = 0

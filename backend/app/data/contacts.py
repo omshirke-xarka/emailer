@@ -271,6 +271,12 @@ class ContactsService:
         
         return contact_list
     
+    async def get_contacts_by_ids_for_list(self, list_id: str, contact_ids: List[int]) -> List[DynamicContact]:
+        """Get specific contacts from a list by their IDs"""
+        all_contacts = await self.get_contacts_for_list(list_id)
+        id_set = set(contact_ids)
+        return [c for c in all_contacts if c.id in id_set]
+
     async def get_contacts_for_list(self, list_id: str) -> List[DynamicContact]:
         """Get contacts for a specific list"""
         redis_client = await self._get_redis_client()

@@ -175,8 +175,7 @@ class EmailsService:
         if not email_ids:
             return []
         
-        # Decode email IDs from bytes to strings
-        email_ids = [email_id.decode('utf-8') for email_id in email_ids]
+        email_ids = [e.decode('utf-8') if isinstance(e, bytes) else e for e in email_ids]
         
         email_keys = [self._email_key(email_id) for email_id in email_ids]
         emails_json = await redis_client.mget(*email_keys)
@@ -185,9 +184,10 @@ class EmailsService:
         for email_json in emails_json:
             if email_json:
                 emails.append(EmailRecord(**json.loads(email_json)))
-        
-        # Reverse to get newest first
-        return emails[::-1]
+
+        # Sort by created_at descending so newest emails always appear first
+        emails.sort(key=lambda e: e.created_at or '', reverse=True)
+        return emails
     
     async def get_email_detail(self, email_id: str) -> Optional[Dict[str, Any]]:
         """Get email detail with recipients"""
@@ -231,32 +231,34 @@ class EmailsService:
         """Get scheduled emails that are due"""
         redis_client = await self._get_redis_client()
         
-        current_time = datetime.now().timestamp()
+        current_time = datetime.now().timestamp() * 1000  # scores stored in ms
         email_ids = await redis_client.zrange(SCHEDULED_KEY, 0, current_time, by_score=True)
         
         if not email_ids:
             return []
-        
+
+        email_ids = [e.decode('utf-8') if isinstance(e, bytes) else e for e in email_ids]
         email_keys = [self._email_key(email_id) for email_id in email_ids]
         emails_json = await redis_client.mget(*email_keys)
-        
+
         emails = []
         for email_json in emails_json:
             if email_json:
                 email = EmailRecord(**json.loads(email_json))
                 if email.status == 'scheduled':
                     emails.append(email)
-        
+
         return emails
-    
+
     async def list_scheduled_emails(self) -> List[EmailRecord]:
         """List all scheduled emails"""
         redis_client = await self._get_redis_client()
-        
+
         email_ids = await redis_client.zrange(SCHEDULED_KEY, 0, -1)
         if not email_ids:
             return []
-        
+
+        email_ids = [e.decode('utf-8') if isinstance(e, bytes) else e for e in email_ids]
         email_keys = [self._email_key(email_id) for email_id in email_ids]
         emails_json = await redis_client.mget(*email_keys)
         

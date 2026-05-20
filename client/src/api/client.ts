@@ -78,10 +78,10 @@ export const previewEmail = (bodyHtml: string, contactId?: number, listId?: stri
   api.post<{ html: string }>('/emails/preview', { body_html: bodyHtml, contact_id: contactId, list_id: listId }).then((r) => r.data);
 
 export const getEmails = () =>
-  api.get<{ data: Email[] }>('/emails/').then((r) => r.data.data);
+  api.get<{ data: Email[] }>('/emails').then((r) => r.data.data);
 
 export const getEmailDetail = (id: string) =>
-  api.get<EmailDetail>(`/emails/${id}/`).then((r) => r.data);
+  api.get<EmailDetail>(`/emails/${id}`).then((r) => r.data);
 
 export const scheduleEmail = (data: {
   contactIds: number[];
@@ -91,13 +91,13 @@ export const scheduleEmail = (data: {
   previewText?: string;
   scheduledAt: string;
   listId?: string;
-}) => api.post<{ emailId: string; scheduledAt: string }>('/emails/schedule/', data).then((r) => r.data);
+}) => api.post<{ emailId: string; scheduledAt: string }>('/emails/schedule', data).then((r) => r.data);
 
 export const getScheduledEmails = () =>
-  api.get<{ data: Email[] }>('/emails/scheduled/').then((r) => r.data.data);
+  api.get<{ data: Email[] }>('/emails/scheduled').then((r) => r.data.data);
 
 export const cancelScheduledEmail = (id: string) =>
-  api.post<{ success: boolean }>(`/emails/${id}/cancel/`).then((r) => r.data);
+  api.post<{ success: boolean }>(`/emails/${id}/cancel`).then((r) => r.data);
 
 // Uploads
 export const uploadImage = (file: File): Promise<{ url: string }> => {

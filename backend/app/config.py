@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     
     # Tracking Configuration
     tracking_base_url: Optional[str] = None
+    enable_click_tracking: bool = False
     
     # Blob Configuration
     blob_read_write_token: Optional[str] = None

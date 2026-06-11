@@ -278,6 +278,9 @@ def rewrite_links(html: str, tracking_id: str) -> str:
     """Rewrite links in HTML to include tracking"""
     from ..config import get_settings
     settings = get_settings()
+
+    if not settings.enable_click_tracking:
+        return html
     
     def replace_link(match):
         before = match.group(1)

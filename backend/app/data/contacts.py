@@ -40,38 +40,7 @@ class ContactsService:
             await self._cleanup_invalid_contacts()
             return
         
-        # Load default contacts (this would be replaced with actual CSV data in production)
-        default_contacts = [
-            Contact(
-                id=1,
-                username="john_doe",
-                email="john@example.com",
-                online="Yes",
-                first_name="John",
-                last_name="Doe",
-                subscribed="Yes",
-                plan="Premium",
-                pages_left=10,
-                last_login="2024-01-01T10:00:00Z",
-                created_at="2024-01-01T00:00:00Z",
-                updated_at="2024-01-01T00:00:00Z"
-            ),
-            Contact(
-                id=2,
-                username="jane_smith",
-                email="jane@example.com",
-                online="No",
-                first_name="Jane",
-                last_name="Smith",
-                subscribed="No",
-                plan="Free Trial",
-                pages_left=0,
-                last_login="2024-01-01T09:00:00Z",
-                created_at="2024-01-01T00:00:00Z",
-                updated_at="2024-01-01T00:00:00Z"
-            )
-        ]
-        await redis_client.set(CONTACTS_KEY, json.dumps([contact.dict() for contact in default_contacts]))
+        await redis_client.set(CONTACTS_KEY, json.dumps([]))
     
     async def upload_csv(self, csv_content: str) -> Dict[str, int]:
         """Upload CSV to replace contacts"""
@@ -280,6 +249,9 @@ class ContactsService:
     async def get_contacts_for_list(self, list_id: str) -> List[DynamicContact]:
         """Get contacts for a specific list"""
         redis_client = await self._get_redis_client()
+
+        if list_id == "all":
+            await self.ensure_loaded()
 
         key = CONTACTS_KEY if list_id == "all" else f"contacts:list:{list_id}"
         contacts_json = await redis_client.get(key)

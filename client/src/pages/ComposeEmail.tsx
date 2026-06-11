@@ -18,7 +18,8 @@ export default function ComposeEmail() {
   const location = useLocation();
   const navigate = useNavigate();
   const contactIds: number[] = location.state?.contactIds || [];
-  const listId: string | null = location.state?.listId || null;
+  const rawListId: string | null = location.state?.listId || null;
+  const listId: string | null = rawListId === 'all' ? null : rawListId;
 
   const [templates, setTemplates] = useState<Template[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
@@ -79,7 +80,7 @@ export default function ComposeEmail() {
     }
     setSending(true);
     try {
-      await sendEmail({
+      const result = await sendEmail({
         contactIds,
         subject,
         bodyHtml,
@@ -87,8 +88,15 @@ export default function ComposeEmail() {
         previewText: previewText || undefined,
         listId: listId || undefined,
       });
-      toast.success('Email sent!');
-      navigate('/');
+
+      if (result.sent > 0 && result.failed === 0) {
+        toast.success(`Email sent to ${result.sent} recipient${result.sent === 1 ? '' : 's'}`);
+        navigate('/');
+      } else if (result.sent > 0) {
+        toast.error(`Email partially sent: ${result.sent} sent, ${result.failed} failed`);
+      } else {
+        toast.error(`Email failed for ${result.failed} recipient${result.failed === 1 ? '' : 's'}`);
+      }
     } catch {
       toast.error('Failed to send');
     } finally {

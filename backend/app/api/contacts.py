@@ -16,6 +16,9 @@ class ContactListCreate(BaseModel):
     name: str = Field(..., min_length=1, description="Contact list name")
     csv: str = Field(..., min_length=1, description="CSV content for contacts")
 
+class CsvUploadRequest(BaseModel):
+    csv: str = Field(..., min_length=1, description="CSV content for contacts")
+
 router = APIRouter()
 
 @router.get("", response_model=ContactListResponse)
@@ -44,10 +47,10 @@ async def get_contact_filters():
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/upload-csv", response_model=ContactUploadResponse)
-async def upload_csv(csv: str):
+async def upload_csv(request: CsvUploadRequest):
     """Upload CSV to replace contacts"""
     try:
-        result = await contacts_service.upload_csv(csv)
+        result = await contacts_service.upload_csv(request.csv)
         return ContactUploadResponse(**result)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -83,6 +86,18 @@ async def get_contacts_for_list(
 ):
     """Get contacts for a specific list"""
     try:
+        if list_id == "all":
+            result = await contacts_service.search_contacts_for_list(
+                list_id, search=search, page=page, limit=limit
+            )
+            return ContactListDynamicResponse(
+                data=result["data"],
+                total=result["total"],
+                page=result["page"],
+                limit=result["limit"],
+                columns=list(Contact.model_fields.keys())
+            )
+
         # Get list metadata to include columns
         list_meta = await contacts_service.get_contact_list_by_id(list_id)
         if not list_meta:
@@ -105,10 +120,14 @@ async def get_contacts_for_list(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/lists/{list_id}/upload-csv")
-async def upload_csv_to_list(list_id: str, csv: str):
+async def upload_csv_to_list(list_id: str, request: CsvUploadRequest):
     """Upload CSV to an existing contact list"""
     try:
-        result = await contacts_service.upload_csv_to_list(list_id, csv)
+        if list_id == "all":
+            result = await contacts_service.upload_csv(request.csv)
+            return ContactUploadResponse(**result)
+
+        result = await contacts_service.upload_csv_to_list(list_id, request.csv)
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -121,6 +140,9 @@ async def upload_csv_to_list(list_id: str, csv: str):
 async def delete_contact_list(list_id: str):
     """Delete a contact list"""
     try:
+        if list_id == "all":
+            raise HTTPException(status_code=400, detail="All Contacts cannot be deleted")
+
         await contacts_service.delete_contact_list(list_id)
         return {"ok": True}
     except ValueError as e:

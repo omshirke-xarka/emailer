@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     # Email Configuration
     sender_email: str = "noreply@emailer.dev"
     app_url: str = "http://localhost:3001"
+    email_provider: str = "aws"
     
     # Email Rate Limiting
     email_rate_limit_interval_ms: int = 1000
@@ -29,6 +30,10 @@ class Settings(BaseSettings):
     aws_default_region: str = "ap-south-1"
     aws_ses_from_email: Optional[str] = None
     ses_sender_name: Optional[str] = None
+
+    # Resend Configuration
+    resend_api_key: Optional[str] = None
+    resend_from_email: str = "LawgicHub <noreply@lawgichub.com>"
     
     # Redis Configuration
     redis_url: str = "redis://localhost:6379"

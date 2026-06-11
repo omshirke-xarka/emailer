@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Literal, Optional, List
 from pydantic import BaseModel, EmailStr, Field
 from datetime import datetime
 
@@ -13,6 +13,7 @@ class EmailRecord(BaseModel):
     total_recipients: int = 0
     total_opens: int = 0
     total_clicks: int = 0
+    failure_count: int = 0
     sent_at: Optional[str] = None
     created_at: Optional[str] = None
     scheduled_at: Optional[str] = None
@@ -27,6 +28,9 @@ class RecipientTracking(BaseModel):
     email_id: str
     email: EmailStr
     name: str
+    send_status: str = "pending"
+    error_message: Optional[str] = None
+    failure_count: int = 0
     opened_at: Optional[str] = None
     open_count: int = 0
     clicked_at: Optional[str] = None
@@ -85,3 +89,11 @@ class EmailPreviewResponse(BaseModel):
 
 class EmailCancelResponse(BaseModel):
     success: bool
+
+
+class EmailProviderRequest(BaseModel):
+    provider: Literal["aws", "resend"]
+
+
+class EmailProviderResponse(BaseModel):
+    provider: Literal["aws", "resend"]

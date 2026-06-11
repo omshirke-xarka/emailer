@@ -10,7 +10,7 @@ from app.services.email_service import email_service
 from app.models.email import (
     EmailListResponse, EmailDetailResponse, EmailSendRequest, EmailSendResponse,
     EmailScheduleRequest, EmailScheduleResponse, EmailPreviewRequest, EmailPreviewResponse,
-    EmailCancelResponse
+    EmailCancelResponse, EmailProviderRequest, EmailProviderResponse
 )
 
 router = APIRouter()
@@ -30,6 +30,26 @@ async def list_scheduled_emails():
     try:
         emails = await emails_service.list_scheduled_emails()
         return EmailListResponse(data=emails, total=len(emails), page=1, limit=len(emails))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/provider", response_model=EmailProviderResponse)
+async def get_email_provider():
+    """Get the active email delivery provider"""
+    try:
+        provider = await email_service.get_email_provider()
+        return EmailProviderResponse(provider=provider)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.put("/provider", response_model=EmailProviderResponse)
+async def update_email_provider(provider_request: EmailProviderRequest):
+    """Switch the active email delivery provider"""
+    try:
+        provider = await email_service.set_email_provider(provider_request.provider)
+        return EmailProviderResponse(provider=provider)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -84,6 +104,17 @@ async def schedule_email(schedule_request: EmailScheduleRequest):
         raise HTTPException(status_code=400, detail="Invalid date format")
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/{email_id}/retry", response_model=EmailSendResponse)
+async def retry_email(email_id: str):
+    """Retry failed recipients from a failed or partial email"""
+    try:
+        result = await email_service.retry_email(email_id)
+        return EmailSendResponse(**result)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

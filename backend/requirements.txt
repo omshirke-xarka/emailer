@@ -5,12 +5,16 @@ uvicorn[standard]==0.24.0
 # Data validation and serialization
 pydantic==2.5.0
 pydantic-settings==2.1.0
+email-validator==2.2.0
 
 # Redis client
 redis==5.0.1
 
 # AWS SDK for SES
 boto3==1.34.0
+
+# Resend email API
+resend==2.30.1
 
 # File upload handling
 python-multipart==0.0.6

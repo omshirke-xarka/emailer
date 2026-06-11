@@ -41,6 +41,7 @@ export interface Email {
   total_recipients: number;
   total_opens: number;
   total_clicks: number;
+  failure_count: number;
   sent_at: string | null;
   created_at: string | null;
   scheduled_at: string | null;
@@ -48,11 +49,14 @@ export interface Email {
 }
 
 export interface RecipientTracking {
-  trackingId: string;
-  contactId: number;
-  emailId: string;
+  tracking_id: string;
+  contact_id: number;
+  email_id: string;
   email: string;
   name: string;
+  send_status: 'pending' | 'sent' | 'failed';
+  error_message: string | null;
+  failure_count: number;
   opened_at: string | null;
   open_count: number;
   clicked_at: string | null;
@@ -94,3 +98,5 @@ export interface ContactList {
   created_at: string | null;
   columns?: string[];
 }
+
+export type EmailProvider = 'aws' | 'resend';

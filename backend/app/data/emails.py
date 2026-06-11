@@ -51,6 +51,7 @@ class EmailsService:
             total_recipients=0,
             total_opens=0,
             total_clicks=0,
+            failure_count=0,
             sent_at='' if is_scheduled else now,
             created_at=now,
             scheduled_at=data.get('scheduled_at'),
@@ -84,6 +85,9 @@ class EmailsService:
             email_id=email_id,
             email=data['email'],
             name=data['name'],
+            send_status=data.get('send_status', 'pending'),
+            error_message=data.get('error_message'),
+            failure_count=data.get('failure_count', 0),
             opened_at=None,
             open_count=0,
             clicked_at=None,
@@ -103,6 +107,48 @@ class EmailsService:
             await redis_client.set(self._email_key(email_id), email.json())
         
         return tracking_id
+
+    async def update_recipient_send_status(
+        self,
+        tracking_id: str,
+        send_status: str,
+        error_message: Optional[str] = None
+    ) -> None:
+        """Update recipient delivery status for retry visibility."""
+        redis_client = await self._get_redis_client()
+
+        recipient_json = await redis_client.get(self._tracking_key(tracking_id))
+        if not recipient_json:
+            return
+
+        recipient = RecipientTracking(**json.loads(recipient_json))
+        recipient.send_status = send_status
+        recipient.error_message = error_message
+        if send_status == "failed":
+            recipient.failure_count += 1
+        await redis_client.set(self._tracking_key(tracking_id), recipient.json())
+
+    async def update_email_send_result(self, email_id: str, sent: int, failed: int) -> None:
+        """Update aggregate email delivery status after a send or retry attempt."""
+        redis_client = await self._get_redis_client()
+
+        email = await self.get_email_record(email_id)
+        if not email:
+            return
+
+        if sent > 0 and failed == 0:
+            email.status = 'sent'
+        elif sent > 0 or email.status == 'partial' or email.total_recipients > failed:
+            email.status = 'partial'
+        else:
+            email.status = 'failed'
+
+        email.failure_count += failed
+        email.sent_at = datetime.now().isoformat()
+        await redis_client.set(self._email_key(email_id), email.json())
+
+        if email.status != 'scheduled':
+            await redis_client.zrem(SCHEDULED_KEY, email_id)
     
     async def record_open(self, tracking_id: str) -> None:
         """Record email open"""
@@ -218,11 +264,20 @@ class EmailsService:
                         'email_id': recipient_data.get('emailId'),
                         'email': recipient_data.get('email'),
                         'name': recipient_data.get('name'),
+                        'send_status': recipient_data.get('sendStatus', 'sent'),
+                        'error_message': recipient_data.get('errorMessage'),
+                        'failure_count': recipient_data.get('failureCount', 0),
                         'opened_at': recipient_data.get('opened_at'),
                         'open_count': recipient_data.get('open_count', 0),
                         'clicked_at': recipient_data.get('clicked_at'),
                         'click_count': recipient_data.get('click_count', 0)
                     }
+                if 'send_status' not in recipient_data:
+                    recipient_data['send_status'] = 'failed' if email.status == 'failed' else 'sent' if email.status == 'sent' else 'pending'
+                if 'error_message' not in recipient_data:
+                    recipient_data['error_message'] = None
+                if 'failure_count' not in recipient_data:
+                    recipient_data['failure_count'] = 1 if recipient_data.get('send_status') == 'failed' else 0
                 recipients.append(RecipientTracking(**recipient_data))
         
         return {"email": email, "recipients": recipients}

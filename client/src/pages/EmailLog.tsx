@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
-import { getEmails, getEmailDetail } from '../api/client';
+import { useCallback, useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
+import { getEmails, getEmailDetail, retryEmail } from '../api/client';
 import type { Email, EmailDetail } from '../types';
 
 function formatDate(dateStr: string) {
@@ -16,13 +17,19 @@ export default function EmailLog() {
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<EmailDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
 
-  useEffect(() => {
-    getEmails()
+  const loadEmails = useCallback(() => {
+    setLoading(true);
+    return getEmails()
       .then(setEmails)
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    loadEmails();
+  }, [loadEmails]);
 
   const viewDetail = async (id: string) => {
     setLoadingDetail(true);
@@ -36,6 +43,34 @@ export default function EmailLog() {
     }
   };
 
+  const canRetry = (email: Email) => email.status === 'failed' || email.status === 'partial';
+
+  const handleRetry = async (email: Email, event?: React.MouseEvent) => {
+    event?.stopPropagation();
+    setRetryingId(email.id);
+
+    try {
+      const result = await retryEmail(email.id);
+      if (result.sent > 0 && result.failed === 0) {
+        toast.success(`Retry sent to ${result.sent} recipient${result.sent === 1 ? '' : 's'}`);
+      } else if (result.sent > 0) {
+        toast.error(`Retry partially sent: ${result.sent} sent, ${result.failed} failed`);
+      } else {
+        toast.error(`Retry failed for ${result.failed} recipient${result.failed === 1 ? '' : 's'}`);
+      }
+
+      await loadEmails();
+      if (detail?.email.id === email.id) {
+        const updatedDetail = await getEmailDetail(email.id);
+        setDetail(updatedDetail);
+      }
+    } catch {
+      toast.error('Failed to retry email');
+    } finally {
+      setRetryingId(null);
+    }
+  };
+
   if (detail) {
     const { email, recipients } = detail;
     return (
@@ -46,10 +81,22 @@ export default function EmailLog() {
         >
           &larr; Back to Email Log
         </button>
-        <h2 className="text-2xl font-bold mb-2">{email.subject}</h2>
+        <div className="mb-2 flex items-center justify-between gap-4">
+          <h2 className="text-2xl font-bold">{email.subject}</h2>
+          {canRetry(email) && (
+            <button
+              className="px-4 py-2 bg-indigo-600 text-white rounded text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+              onClick={() => handleRetry(email)}
+              disabled={retryingId === email.id}
+            >
+              {retryingId === email.id ? 'Retrying...' : 'Retry Failed'}
+            </button>
+          )}
+        </div>
         <div className="flex gap-6 text-sm text-gray-500 mb-6">
           <span>Sent: {formatDate(email.sent_at)}</span>
           <span>Status: <span className={`font-medium ${email.status === 'sent' ? 'text-green-600' : email.status === 'partial' ? 'text-amber-600' : 'text-red-600'}`}>{email.status}</span></span>
+          <span>Failed attempts: <span className="font-medium text-red-600">{email.failure_count}</span></span>
         </div>
 
         <div className="grid grid-cols-3 gap-4 mb-6">
@@ -73,6 +120,8 @@ export default function EmailLog() {
               <tr>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Name</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Email</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">Delivery</th>
+                <th className="text-center px-4 py-3 font-medium text-gray-600">Failures</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Opened</th>
                 <th className="text-center px-4 py-3 font-medium text-gray-600">Opens</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Clicked</th>
@@ -81,9 +130,19 @@ export default function EmailLog() {
             </thead>
             <tbody className="divide-y">
               {recipients.map((r) => (
-                <tr key={r.trackingId} className="hover:bg-gray-50">
+                <tr key={r.tracking_id} className="hover:bg-gray-50">
                   <td className="px-4 py-3">{r.name}</td>
                   <td className="px-4 py-3 text-gray-500">{r.email}</td>
+                  <td className="px-4 py-3">
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                      r.send_status === 'sent' ? 'bg-green-100 text-green-700' :
+                      r.send_status === 'failed' ? 'bg-red-100 text-red-700' :
+                      'bg-gray-100 text-gray-600'
+                    }`}>
+                      {r.send_status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-center text-red-600">{r.failure_count}</td>
                   <td className="px-4 py-3">
                     {r.opened_at ? (
                       <span className="text-green-600">{formatDate(r.opened_at)}</span>
@@ -104,7 +163,7 @@ export default function EmailLog() {
               ))}
               {recipients.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-gray-400">No recipients found</td>
+                  <td colSpan={8} className="px-4 py-8 text-center text-gray-400">No recipients found</td>
                 </tr>
               )}
             </tbody>
@@ -132,7 +191,9 @@ export default function EmailLog() {
                 <th className="text-center px-4 py-3 font-medium text-gray-600">Opens</th>
                 <th className="text-center px-4 py-3 font-medium text-gray-600">Clicks</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
+                <th className="text-center px-4 py-3 font-medium text-gray-600">Failures</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Sent</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-600">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -161,7 +222,19 @@ export default function EmailLog() {
                       {e.status}
                     </span>
                   </td>
+                  <td className="px-4 py-3 text-center text-red-600">{e.failure_count}</td>
                   <td className="px-4 py-3 text-gray-500">{formatDate(e.sent_at)}</td>
+                  <td className="px-4 py-3 text-right">
+                    {canRetry(e) && (
+                      <button
+                        className="px-3 py-1.5 bg-indigo-600 text-white rounded text-xs font-medium hover:bg-indigo-700 disabled:opacity-50"
+                        onClick={(event) => handleRetry(e, event)}
+                        disabled={retryingId === e.id}
+                      >
+                        {retryingId === e.id ? 'Retrying...' : 'Retry'}
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

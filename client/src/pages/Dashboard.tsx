@@ -7,6 +7,7 @@ import {
   getContactLists,
   createContactList,
   getContactsForList,
+  uploadContactsCsv,
   uploadCsvToList,
   deleteContactList,
 } from '../api/client';
@@ -180,6 +181,7 @@ export default function Dashboard() {
   // Contact lists
   const [contactLists, setContactLists] = useState<ContactList[]>([]);
   const [activeList, setActiveList] = useState<string>('all');
+  const [allContactsTotal, setAllContactsTotal] = useState(0);
   const [showNewListModal, setShowNewListModal] = useState(false);
 
   // Debounce search input by 300ms
@@ -202,6 +204,9 @@ export default function Dashboard() {
       const res = await getContactsForList(activeList, params);
       setDynamicContacts(res.data);
       setDynamicColumns(res.columns || []);
+      if (activeList === 'all') {
+        setAllContactsTotal(res.total);
+      }
     } catch {
       toast.error('Failed to load contacts');
     }
@@ -220,7 +225,12 @@ export default function Dashboard() {
 
   const handleCompose = () => {
     const ids = Array.from(selectedIds);
-    navigate('/compose', { state: { contactIds: ids, listId: activeList } });
+    navigate('/compose', {
+      state: {
+        contactIds: ids,
+        listId: activeList === 'all' ? null : activeList,
+      },
+    });
   };
 
   const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -233,11 +243,17 @@ export default function Dashboard() {
     setUploading(true);
     try {
       const text = await file.text();
-      const result = await uploadCsvToList(activeList, text);
+      const result = activeList === 'all'
+        ? await uploadContactsCsv(text)
+        : await uploadCsvToList(activeList, text);
       toast.success(`${result.new_contacts} new, ${result.updated_contacts} updated — ${result.contact_count} total contacts`);
-      setContactLists((prev) =>
-        prev.map((l) => l.id === activeList ? { ...l, contact_count: result.contact_count, columns: result.columns } : l)
-      );
+      if (activeList === 'all') {
+        setAllContactsTotal(result.contact_count);
+      } else {
+        setContactLists((prev) =>
+          prev.map((l) => l.id === activeList ? { ...l, contact_count: result.contact_count, columns: result.columns } : l)
+        );
+      }
       setSelectedIds(new Set());
       fetchContacts();
     } catch {
@@ -268,9 +284,20 @@ export default function Dashboard() {
     }
   };
 
-  const activeListName = activeList
-    ? contactLists.find((l) => l.id === activeList)?.name || 'Contact List'
-    : 'All Contacts';
+  const visibleContactLists: ContactList[] = [
+    {
+      id: 'all',
+      name: 'All Contacts',
+      contact_count: allContactsTotal,
+      created_at: null,
+      columns: dynamicColumns,
+    },
+    ...contactLists,
+  ];
+
+  const activeListName = activeList === 'all'
+    ? 'All Contacts'
+    : contactLists.find((l) => l.id === activeList)?.name || 'Contact List';
 
   return (
     <div>
@@ -302,7 +329,7 @@ export default function Dashboard() {
 
       {/* List tabs */}
       <div className="flex items-center gap-1 mb-4 border-b border-gray-200 overflow-x-auto">
-        {contactLists.map((list) => (
+        {visibleContactLists.map((list) => (
           <div key={list.id} className="flex items-center group">
             <button
               onClick={() => setActiveList(list.id)}

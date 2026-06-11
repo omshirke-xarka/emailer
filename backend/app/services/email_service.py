@@ -10,9 +10,10 @@ import uuid
 from app.config import get_settings
 from app.data.contacts import contacts_service
 from app.data.emails import emails_service
+from app.data.redis_client import get_redis_client
 from app.data.templates import templates_service
 from app.models.contact import Contact, DynamicContact
-from app.models.email import EmailRecord
+from app.models.email import EmailRecord, RecipientTracking
 from app.utils.helpers import (
     resolve_template, 
     detect_email_column, 
@@ -24,10 +25,37 @@ from app.utils.helpers import (
 from app.utils.rate_limiter import wait_for_next_email_send
 
 settings = get_settings()
+EMAIL_PROVIDER_KEY = "settings:email_provider"
+VALID_EMAIL_PROVIDERS = {"aws", "resend"}
 
 class EmailService:
     def __init__(self):
         self.settings = settings
+
+    async def get_email_provider(self) -> str:
+        """Return the active email delivery provider."""
+        redis_client = await get_redis_client()
+        provider = await redis_client.get(EMAIL_PROVIDER_KEY)
+        if isinstance(provider, bytes):
+            provider = provider.decode("utf-8")
+
+        provider = (provider or self.settings.email_provider or "aws").lower()
+        return provider if provider in VALID_EMAIL_PROVIDERS else "aws"
+
+    async def set_email_provider(self, provider: str) -> str:
+        """Persist the active email delivery provider."""
+        normalized = provider.lower()
+        if normalized not in VALID_EMAIL_PROVIDERS:
+            raise ValueError("provider must be 'aws' or 'resend'")
+
+        redis_client = await get_redis_client()
+        await redis_client.set(EMAIL_PROVIDER_KEY, normalized)
+        return normalized
+
+    def _sender_email_for_provider(self, provider: str) -> str:
+        if provider == "resend":
+            return self.settings.resend_from_email
+        return self.settings.aws_ses_from_email or self.settings.sender_email
     
     async def send_email(self, options: Dict[str, Any]) -> Dict[str, Any]:
         """Send email immediately"""
@@ -37,34 +65,31 @@ class EmailService:
         preview_text = options.get('preview_text')
         template_id = options.get('template_id')
         list_id = options.get('list_id')
+        provider = await self.get_email_provider()
         
         # Create email record
         email_record = await emails_service.create_email_record({
             'subject': subject,
             'body_html': body_html,
             'template_id': template_id,
-            'sender_email': self.settings.sender_email,
+            'sender_email': self._sender_email_for_provider(provider),
             'contact_ids': contact_ids,
+            'preview_text': preview_text,
             'list_id': list_id,
         })
         
-        sent = 0
-        failed = 0
-        
         if list_id:
             # Send to contacts from a custom list
-            await self._send_to_list_contacts(
-                email_record.id, contact_ids, subject, body_html, preview_text, list_id
+            sent, failed = await self._send_to_list_contacts(
+                email_record.id, contact_ids, subject, body_html, preview_text, list_id, provider
             )
         else:
             # Send to standard contacts
-            await self._send_to_standard_contacts(
-                email_record.id, contact_ids, subject, body_html, preview_text
+            sent, failed = await self._send_to_standard_contacts(
+                email_record.id, contact_ids, subject, body_html, preview_text, provider
             )
         
-        # Update email status
-        status = 'sent' if failed == 0 else 'partial' if sent > 0 else 'failed'
-        await emails_service.update_email_status(email_record.id, status)
+        await emails_service.update_email_send_result(email_record.id, sent, failed)
         
         return {
             'sent': sent,
@@ -81,13 +106,14 @@ class EmailService:
         template_id = options.get('template_id')
         scheduled_at = options['scheduled_at']
         list_id = options.get('list_id')
+        provider = await self.get_email_provider()
         
         # Create email record with scheduled time
         email_record = await emails_service.create_email_record({
             'subject': subject,
             'body_html': body_html,
             'template_id': template_id,
-            'sender_email': self.settings.sender_email,
+            'sender_email': self._sender_email_for_provider(provider),
             'scheduled_at': scheduled_at,
             'contact_ids': contact_ids,
             'preview_text': preview_text,
@@ -98,84 +124,262 @@ class EmailService:
             'email_id': email_record.id,
             'scheduled_at': scheduled_at
         }
+
+    async def retry_email(self, email_id: str) -> Dict[str, Any]:
+        """Retry failed recipients on the existing email record."""
+        email_record = await emails_service.get_email_record(email_id)
+        if not email_record:
+            raise ValueError("Email not found")
+
+        if email_record.status not in {"failed", "partial"}:
+            raise ValueError("Only failed or partially failed emails can be retried")
+
+        detail = await emails_service.get_email_detail(email_id)
+        recipients = detail.get("recipients", []) if detail else []
+        failed_recipients = [
+            recipient for recipient in recipients
+            if recipient.send_status == "failed"
+        ]
+
+        if not failed_recipients:
+            raise ValueError("No failed recipients found to retry")
+
+        provider = await self.get_email_provider()
+        retry_contact_ids = list(dict.fromkeys(recipient.contact_id for recipient in failed_recipients))
+
+        if email_record.list_id:
+            sent, failed = await self._retry_list_recipients(email_record, failed_recipients, retry_contact_ids, provider)
+        else:
+            sent, failed = await self._retry_standard_recipients(email_record, failed_recipients, retry_contact_ids, provider)
+
+        await emails_service.update_email_send_result(email_record.id, sent, failed)
+
+        return {
+            'sent': sent,
+            'failed': failed,
+            'email_id': email_record.id
+        }
     
-    async def _send_to_standard_contacts(self, email_id: str, contact_ids: List[int], 
-                                       subject: str, body_html: str, preview_text: Optional[str]):
+    async def _send_to_standard_contacts(self, email_id: str, contact_ids: List[int],
+                                       subject: str, body_html: str, preview_text: Optional[str],
+                                       provider: str):
         """Send email to standard contacts"""
         contacts = await contacts_service.get_contacts_by_ids(contact_ids)
+        sent = 0
+        found_ids = {contact.id for contact in contacts}
+        failed = len(set(contact_ids) - found_ids)
         
         for contact in contacts:
-            # Wait for rate limit
-            await wait_for_next_email_send()
-            
-            # Resolve template variables
-            resolved_subject = subject.replace('{{username}}', contact.username).replace('{{email}}', contact.email)
-            resolved_body = body_html.replace('{{username}}', contact.username).replace('{{email}}', contact.email)
-            
-            if preview_text:
-                resolved_preview = preview_text.replace('{{username}}', contact.username).replace('{{email}}', contact.email)
-                resolved_body = inject_preheader(resolved_body, resolved_preview)
-            
-            # Add tracking
-            tracking_id = await emails_service.add_recipient(email_id, {
-                'contact_id': contact.id,
-                'email': contact.email,
-                'name': contact.username
-            })
-            
-            resolved_body = rewrite_links(resolved_body, tracking_id)
-            resolved_body = inject_tracking_pixel(resolved_body, tracking_id)
-            
-            # Send via SES
-            await self._send_via_ses(contact.email, resolved_subject, resolved_body)
+            tracking_id = None
+            try:
+                if not contact.email:
+                    raise ValueError("Contact has no email address")
+
+                # Wait for rate limit
+                await wait_for_next_email_send()
+
+                # Resolve template variables
+                resolved_subject = subject.replace('{{username}}', contact.username).replace('{{email}}', contact.email)
+                resolved_body = body_html.replace('{{username}}', contact.username).replace('{{email}}', contact.email)
+
+                if preview_text:
+                    resolved_preview = preview_text.replace('{{username}}', contact.username).replace('{{email}}', contact.email)
+                    resolved_body = inject_preheader(resolved_body, resolved_preview)
+
+                # Add tracking
+                tracking_id = await emails_service.add_recipient(email_id, {
+                    'contact_id': contact.id,
+                    'email': contact.email,
+                    'name': contact.username
+                })
+
+                resolved_body = rewrite_links(resolved_body, tracking_id)
+                resolved_body = inject_tracking_pixel(resolved_body, tracking_id)
+
+                await self._send_with_provider(provider, contact.email, resolved_subject, resolved_body)
+                await emails_service.update_recipient_send_status(tracking_id, "sent")
+                sent += 1
+            except Exception as e:
+                if tracking_id:
+                    await emails_service.update_recipient_send_status(tracking_id, "failed", str(e))
+                failed += 1
+                print(f"Failed to send email to contact {contact.id}: {str(e)}")
+
+        return sent, failed
     
     async def _send_to_list_contacts(self, email_id: str, contact_ids: List[int], 
-                                   subject: str, body_html: str, preview_text: Optional[str], list_id: str):
+                                   subject: str, body_html: str, preview_text: Optional[str],
+                                   list_id: str, provider: str):
         """Send email to contacts from a custom list"""
         list_contacts = await contacts_service.get_contacts_by_ids_for_list(list_id, contact_ids)
         list_meta = await contacts_service.get_contact_list_by_id(list_id)
         
         if not list_contacts or not list_meta:
-            return
+            return 0, len(contact_ids)
         
         columns = list_meta.columns
         email_col = detect_email_column(columns)
         name_col = detect_name_column(columns)
+        sent = 0
+        found_ids = {contact.id for contact in list_contacts}
+        failed = len(set(contact_ids) - found_ids)
         
         for contact in list_contacts:
-            # Wait for rate limit
-            await wait_for_next_email_send()
-            
-            # Build template variables
-            vars = {}
-            for key, value in contact.dict().items():
-                if key != 'id':
-                    vars[key] = str(value or '')
-            
-            vars['email'] = str(contact.dict().get(email_col, '') or '')
-            if name_col:
-                vars['username'] = str(contact.dict().get(name_col, '') or '')
-            
-            # Resolve template variables
-            resolved_subject = resolve_template(subject, vars)
-            resolved_body = resolve_template(body_html, vars)
-            
-            if preview_text:
-                resolved_preview = resolve_template(preview_text, vars)
-                resolved_body = inject_preheader(resolved_body, resolved_preview)
-            
-            # Add tracking
-            tracking_id = await emails_service.add_recipient(email_id, {
-                'contact_id': contact.id,
-                'email': vars['email'],
-                'name': vars['username']
-            })
-            
-            resolved_body = rewrite_links(resolved_body, tracking_id)
-            resolved_body = inject_tracking_pixel(resolved_body, tracking_id)
-            
-            # Send via SES
-            await self._send_via_ses(vars['email'], resolved_subject, resolved_body)
+            tracking_id = None
+            try:
+                # Wait for rate limit
+                await wait_for_next_email_send()
+
+                # Build template variables
+                vars = {}
+                for key, value in contact.dict().items():
+                    if key != 'id':
+                        vars[key] = str(value or '')
+
+                vars['email'] = str(contact.dict().get(email_col, '') or '')
+                if name_col:
+                    vars['username'] = str(contact.dict().get(name_col, '') or '')
+                else:
+                    vars['username'] = vars['email']
+
+                if not vars['email']:
+                    raise ValueError("Contact has no email address")
+
+                # Resolve template variables
+                resolved_subject = resolve_template(subject, vars)
+                resolved_body = resolve_template(body_html, vars)
+
+                if preview_text:
+                    resolved_preview = resolve_template(preview_text, vars)
+                    resolved_body = inject_preheader(resolved_body, resolved_preview)
+
+                # Add tracking
+                tracking_id = await emails_service.add_recipient(email_id, {
+                    'contact_id': contact.id,
+                    'email': vars['email'],
+                    'name': vars['username']
+                })
+
+                resolved_body = rewrite_links(resolved_body, tracking_id)
+                resolved_body = inject_tracking_pixel(resolved_body, tracking_id)
+
+                await self._send_with_provider(provider, vars['email'], resolved_subject, resolved_body)
+                await emails_service.update_recipient_send_status(tracking_id, "sent")
+                sent += 1
+            except Exception as e:
+                if tracking_id:
+                    await emails_service.update_recipient_send_status(tracking_id, "failed", str(e))
+                failed += 1
+                print(f"Failed to send email to contact {contact.id}: {str(e)}")
+
+        return sent, failed
+
+    async def _retry_standard_recipients(
+        self,
+        email_record: EmailRecord,
+        failed_recipients: List[RecipientTracking],
+        contact_ids: List[int],
+        provider: str
+    ):
+        contacts = await contacts_service.get_contacts_by_ids(contact_ids)
+        contacts_by_id = {contact.id: contact for contact in contacts}
+        sent = 0
+        failed = 0
+
+        for recipient in failed_recipients:
+            contact = contacts_by_id.get(recipient.contact_id)
+            try:
+                if not contact:
+                    raise ValueError("Contact no longer exists")
+                if not contact.email:
+                    raise ValueError("Contact has no email address")
+
+                await wait_for_next_email_send()
+
+                resolved_subject = email_record.subject.replace('{{username}}', contact.username).replace('{{email}}', contact.email)
+                resolved_body = email_record.body_html.replace('{{username}}', contact.username).replace('{{email}}', contact.email)
+
+                if email_record.preview_text:
+                    resolved_preview = email_record.preview_text.replace('{{username}}', contact.username).replace('{{email}}', contact.email)
+                    resolved_body = inject_preheader(resolved_body, resolved_preview)
+
+                resolved_body = rewrite_links(resolved_body, recipient.tracking_id)
+                resolved_body = inject_tracking_pixel(resolved_body, recipient.tracking_id)
+
+                await self._send_with_provider(provider, contact.email, resolved_subject, resolved_body)
+                await emails_service.update_recipient_send_status(recipient.tracking_id, "sent")
+                sent += 1
+            except Exception as e:
+                await emails_service.update_recipient_send_status(recipient.tracking_id, "failed", str(e))
+                failed += 1
+                print(f"Failed to retry email to contact {recipient.contact_id}: {str(e)}")
+
+        return sent, failed
+
+    async def _retry_list_recipients(
+        self,
+        email_record: EmailRecord,
+        failed_recipients: List[RecipientTracking],
+        contact_ids: List[int],
+        provider: str
+    ):
+        list_contacts = await contacts_service.get_contacts_by_ids_for_list(email_record.list_id, contact_ids)
+        list_meta = await contacts_service.get_contact_list_by_id(email_record.list_id)
+
+        if not list_meta:
+            return 0, len(failed_recipients)
+
+        contacts_by_id = {contact.id: contact for contact in list_contacts}
+        columns = list_meta.columns
+        email_col = detect_email_column(columns)
+        name_col = detect_name_column(columns)
+        sent = 0
+        failed = 0
+
+        for recipient in failed_recipients:
+            contact = contacts_by_id.get(recipient.contact_id)
+            try:
+                if not contact:
+                    raise ValueError("Contact no longer exists")
+
+                await wait_for_next_email_send()
+
+                vars = {}
+                for key, value in contact.dict().items():
+                    if key != 'id':
+                        vars[key] = str(value or '')
+
+                vars['email'] = str(contact.dict().get(email_col, '') or '')
+                vars['username'] = str(contact.dict().get(name_col, '') or '') if name_col else vars['email']
+
+                if not vars['email']:
+                    raise ValueError("Contact has no email address")
+
+                resolved_subject = resolve_template(email_record.subject, vars)
+                resolved_body = resolve_template(email_record.body_html, vars)
+
+                if email_record.preview_text:
+                    resolved_preview = resolve_template(email_record.preview_text, vars)
+                    resolved_body = inject_preheader(resolved_body, resolved_preview)
+
+                resolved_body = rewrite_links(resolved_body, recipient.tracking_id)
+                resolved_body = inject_tracking_pixel(resolved_body, recipient.tracking_id)
+
+                await self._send_with_provider(provider, vars['email'], resolved_subject, resolved_body)
+                await emails_service.update_recipient_send_status(recipient.tracking_id, "sent")
+                sent += 1
+            except Exception as e:
+                await emails_service.update_recipient_send_status(recipient.tracking_id, "failed", str(e))
+                failed += 1
+                print(f"Failed to retry email to contact {recipient.contact_id}: {str(e)}")
+
+        return sent, failed
+
+    async def _send_with_provider(self, provider: str, to_email: str, subject: str, body_html: str):
+        if provider == "resend":
+            await self._send_via_resend(to_email, subject, body_html)
+        else:
+            await self._send_via_ses(to_email, subject, body_html)
     
     async def _send_via_ses(self, to_email: str, subject: str, body_html: str):
         """Send email via AWS SES"""
@@ -214,6 +418,25 @@ class EmailService:
             
         except Exception as e:
             # Log error but don't raise to allow other emails to be sent
+            print(f"Failed to send email to {to_email}: {str(e)}")
+            raise
+
+    async def _send_via_resend(self, to_email: str, subject: str, body_html: str):
+        """Send email via Resend."""
+        try:
+            if not self.settings.resend_api_key:
+                raise ValueError("RESEND_API_KEY is not set")
+
+            import resend
+
+            resend.api_key = self.settings.resend_api_key
+            resend.Emails.send({
+                "from": self.settings.resend_from_email,
+                "to": [to_email],
+                "subject": subject,
+                "html": body_html,
+            })
+        except Exception as e:
             print(f"Failed to send email to {to_email}: {str(e)}")
             raise
     

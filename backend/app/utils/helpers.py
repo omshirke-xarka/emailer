@@ -3,6 +3,7 @@ import csv
 import io
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
+from urllib.parse import quote
 import pandas as pd
 from ..models.contact import Contact, DynamicContact
 
@@ -266,8 +267,9 @@ def inject_tracking_pixel(html: str, tracking_id: str) -> str:
     """Inject tracking pixel into HTML email"""
     from ..config import get_settings
     settings = get_settings()
+    tracking_base_url = settings.tracking_base_url or settings.app_url
     
-    pixel = f'<img src="{settings.app_url}/api/track/open/{tracking_id}.png" width="1" height="1" style="display:none" alt="" />'
+    pixel = f'<img src="{tracking_base_url}/api/track/open/{tracking_id}.png" width="1" height="1" style="display:none" alt="" />'
     if '</body>' in html:
         return html.replace('</body>', f'{pixel}</body>')
     return html + pixel
@@ -277,6 +279,7 @@ def rewrite_links(html: str, tracking_id: str) -> str:
     """Rewrite links in HTML to include tracking"""
     from ..config import get_settings
     settings = get_settings()
+    tracking_base_url = settings.tracking_base_url or settings.app_url
     
     def replace_link(match):
         before = match.group(1)
@@ -287,7 +290,9 @@ def rewrite_links(html: str, tracking_id: str) -> str:
         # Skip tracking URLs to avoid double-wrapping
         if '/api/track/' in url:
             return match.group(0)
-        redirect_url = f"{settings.app_url}/api/track/click/{tracking_id}?url={url}"
+        # Properly encode the URL parameter
+        encoded_url = quote(url, safe=':/?#[]@!$&\'()*+,;=')
+        redirect_url = f"{tracking_base_url}/api/track/click/{tracking_id}?url={encoded_url}"
         return f'<a {before}href="{redirect_url}"'
     
     return re.sub(r'<a\s([^>]*?)href=["\']([^"\']+)["\']', replace_link, html, flags=re.IGNORECASE)

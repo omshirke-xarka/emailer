@@ -10,7 +10,7 @@ from app.models.template import (
 
 router = APIRouter()
 
-@router.get("/", response_model=TemplateListResponse)
+@router.get("", response_model=TemplateListResponse)
 async def list_templates():
     """List all templates"""
     try:
@@ -32,7 +32,7 @@ async def get_template(template_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/", response_model=Template, status_code=201)
+@router.post("", response_model=Template, status_code=201)
 async def create_template(template: TemplateCreateRequest):
     """Create template"""
     try:
@@ -54,8 +54,9 @@ async def update_template(template_id: str, template: TemplateUpdateRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/{template_id}")
+@router.delete("/{template_id}/")
 async def delete_template(template_id: str):
-    """Delete template"""
+    """Delete template (supports optional trailing slash)"""
     try:
         await templates_service.delete_template(template_id)
         return None

@@ -43,19 +43,19 @@ export const deleteContactList = (listId: string) =>
 
 // Templates
 export const getTemplates = () =>
-  api.get<{ data: Template[] }>('/templates/').then((r) => r.data.data);
+  api.get<{ data: Template[] }>('/templates').then((r) => r.data.data);
 
 export const getTemplate = (id: string) =>
-  api.get<Template>(`/templates/${id}/`).then((r) => r.data);
+  api.get<Template>(`/templates/${id}`).then((r) => r.data);
 
 export const createTemplate = (data: Partial<Template>) =>
-  api.post<Template>('/templates/', data).then((r) => r.data);
+  api.post<Template>('/templates', data).then((r) => r.data);
 
 export const updateTemplate = (id: string, data: Partial<Template>) =>
-  api.put<Template>(`/templates/${id}/`, data).then((r) => r.data);
+  api.put<Template>(`/templates/${id}`, data).then((r) => r.data);
 
 export const deleteTemplate = (id: string) =>
-  api.delete(`/templates/${id}/`);
+  api.delete(`/templates/${id}`);
 
 // Emails
 export const sendEmail = (data: {

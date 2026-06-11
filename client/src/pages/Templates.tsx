@@ -42,8 +42,8 @@ export default function Templates() {
   const handleDelete = async (id: string) => {
     try {
       await deleteTemplate(id);
+      setTemplates((current) => current.filter((template) => template.id !== id));
       toast.success('Template deleted');
-      fetchTemplates();
     } catch {
       toast.error('Failed to delete template');
     }

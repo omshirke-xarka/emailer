@@ -1,0 +1,5 @@
+# Reverse proxy with automatic HTTPS (Let's Encrypt).
+# API_DOMAIN comes from .env via docker-compose.prod.yml.
+{$API_DOMAIN} {
+	reverse_proxy app:3001
+}

@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     sender_email: str = "noreply@emailer.dev"
     app_url: str = "http://localhost:3001"
     email_provider: str = "aws"
+
+    # Comma-separated list of allowed browser origins, e.g.
+    # "https://myapp.vercel.app,https://emailer.example.com" ("*" allows all)
+    cors_origins: str = "*"
     
     # Email Rate Limiting
     email_rate_limit_interval_ms: int = 1000
@@ -46,8 +50,10 @@ class Settings(BaseSettings):
     tracking_base_url: Optional[str] = None
     enable_click_tracking: bool = False
     # Opens/clicks within this many seconds of the send are treated as
-    # mail-provider scanner prefetches and ignored (0 disables the filter)
-    open_tracking_grace_seconds: int = 15
+    # mail-provider scanner prefetches and ignored (0 disables the filter).
+    # Gmail's scan hits ~3s after delivery; keep this above 5 but low enough
+    # that a fast human open still counts.
+    open_tracking_grace_seconds: int = 10
     
     # Blob Configuration
     blob_read_write_token: Optional[str] = None

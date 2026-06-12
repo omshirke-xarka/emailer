@@ -152,25 +152,28 @@ class EmailsService:
         if email.status != 'scheduled':
             await redis_client.zrem(SCHEDULED_KEY, email_id)
     
-    def _is_bot_request(self, recipient: RecipientTracking, user_agent: Optional[str], kind: str) -> bool:
+    def _classify_hit(self, recipient: RecipientTracking, user_agent: Optional[str]):
         """Detect automated scanner/prefetch hits that should not count as engagement.
 
         Mail providers (Gmail, Outlook/Defender, corporate gateways) fetch pixels
         and links right after delivery to scan for spam/malware. Real humans never
         engage within seconds of the send, so hits inside the grace window are
         discarded, as are known scanner user agents.
+
+        Returns (ignored_reason, seconds_after_send); reason is None for real hits.
         """
         from app.config import get_settings
         grace_seconds = get_settings().open_tracking_grace_seconds
 
-        if recipient.sent_at and grace_seconds > 0:
+        elapsed = None
+        if recipient.sent_at:
             try:
                 elapsed = (datetime.now() - datetime.fromisoformat(recipient.sent_at)).total_seconds()
-                if 0 <= elapsed < grace_seconds:
-                    print(f"Ignoring {kind} for {recipient.email}: {elapsed:.1f}s after send (scanner prefetch), UA={user_agent}")
-                    return True
             except ValueError:
                 pass
+
+        if elapsed is not None and grace_seconds > 0 and 0 <= elapsed < grace_seconds:
+            return "scanner-prefetch", elapsed
 
         # GoogleImageProxy is NOT listed: all real Gmail opens come through it
         bot_markers = (
@@ -180,9 +183,34 @@ class EmailsService:
         )
         ua = (user_agent or '').lower()
         if any(marker in ua for marker in bot_markers):
-            print(f"Ignoring {kind} for {recipient.email}: bot user agent '{user_agent}'")
-            return True
+            return "bot-user-agent", elapsed
 
+        return None, elapsed
+
+    async def _log_hit(self, redis_client, kind: str, recipient: RecipientTracking,
+                       user_agent: Optional[str], ignored_reason: Optional[str],
+                       elapsed: Optional[float]) -> None:
+        """Keep a capped log of every tracking hit for debugging."""
+        entry = {
+            "ts": datetime.now().isoformat(),
+            "kind": kind,
+            "email": recipient.email,
+            "tracking_id": recipient.tracking_id,
+            "user_agent": user_agent,
+            "seconds_after_send": round(elapsed, 1) if elapsed is not None else None,
+            "ignored_reason": ignored_reason,
+        }
+        await redis_client.lpush("tracking:hits", json.dumps(entry))
+        await redis_client.ltrim("tracking:hits", 0, 199)
+
+    async def _screen_hit(self, redis_client, kind: str, recipient: RecipientTracking,
+                          user_agent: Optional[str]) -> bool:
+        """Log the hit and return True if it should be ignored."""
+        reason, elapsed = self._classify_hit(recipient, user_agent)
+        await self._log_hit(redis_client, kind, recipient, user_agent, reason, elapsed)
+        if reason:
+            print(f"Ignoring {kind} for {recipient.email}: {reason} ({elapsed}s after send), UA={user_agent}")
+            return True
         return False
 
     async def record_open(self, tracking_id: str, user_agent: Optional[str] = None) -> None:
@@ -195,7 +223,7 @@ class EmailsService:
 
         recipient = RecipientTracking(**json.loads(recipient_json))
 
-        if self._is_bot_request(recipient, user_agent, "open"):
+        if await self._screen_hit(redis_client, "open", recipient, user_agent):
             return
 
         # Update recipient
@@ -223,7 +251,7 @@ class EmailsService:
 
         recipient = RecipientTracking(**json.loads(recipient_json))
 
-        if self._is_bot_request(recipient, user_agent, "click"):
+        if await self._screen_hit(redis_client, "click", recipient, user_agent):
             return
 
         # Update recipient

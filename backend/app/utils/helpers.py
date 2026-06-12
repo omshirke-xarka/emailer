@@ -268,7 +268,8 @@ def inject_tracking_pixel(html: str, tracking_id: str) -> str:
     from ..config import get_settings
     settings = get_settings()
     
-    pixel = f'<img src="{settings.app_url}/api/track/open/{tracking_id}.png" width="1" height="1" style="display:none" alt="" />'
+    # Some clients skip display:none images, so keep the pixel rendered but invisible
+    pixel = f'<img src="{settings.app_url}/api/track/open/{tracking_id}.png" width="1" height="1" border="0" alt="" style="width:1px;height:1px;border:0;margin:0;padding:0;" />'
     if '</body>' in html:
         return html.replace('</body>', f'{pixel}</body>')
     return html + pixel

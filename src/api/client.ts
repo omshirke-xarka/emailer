@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Contact, ContactsResponse, DynamicContact, DynamicContactsResponse, FilterOptions, Template, Email, EmailDetail, ContactList, EmailProvider } from '../types';
+import type { Contact, ContactsResponse, DynamicContactsResponse, FilterOptions, Template, Email, EmailDetail, ContactList, EmailProvider } from '../types';
 
 const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || '/api' });
 
@@ -18,9 +18,6 @@ export const deleteContact = (id: number) =>
 
 export const importContacts = (contacts: Partial<Contact>[]) =>
   api.post('/contacts/import', { contacts }).then((r) => r.data);
-
-export const addContactToList = (listId: string, fields: Record<string, string>) =>
-  api.post<DynamicContact>(`/contacts/lists/${listId}/contacts`, { fields }).then((r) => r.data);
 
 export const getFilterOptions = () =>
   api.get<FilterOptions>('/contacts/filters').then((r) => r.data);

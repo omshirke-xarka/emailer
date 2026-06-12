@@ -10,8 +10,145 @@ import {
   uploadContactsCsv,
   uploadCsvToList,
   deleteContactList,
+  createContact,
+  addContactToList,
 } from '../api/client';
 import type { ContactList, DynamicContact } from '../types';
+import { fileToCsv, isSpreadsheetFile, SPREADSHEET_ACCEPT } from '../utils/fileToCsv';
+
+const ALL_CONTACT_FIELDS = [
+  { key: 'username', label: 'Username', required: true },
+  { key: 'email', label: 'Email', required: true },
+  { key: 'first_name', label: 'First name', required: false },
+  { key: 'last_name', label: 'Last name', required: false },
+  { key: 'mobile', label: 'Mobile', required: false },
+];
+
+function AddContactModal({
+  open,
+  onClose,
+  listId,
+  columns,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  listId: string;
+  columns: string[];
+  onCreated: () => void;
+}) {
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+
+  if (!open) return null;
+
+  const isAllContacts = listId === 'all';
+  const listColumns = columns.filter((c) => c !== 'id');
+  const emailColumn = listColumns.find((c) => c.toLowerCase().includes('email')) || listColumns[0];
+
+  const setValue = (key: string, value: string) =>
+    setValues((prev) => ({ ...prev, [key]: value }));
+
+  const resetAndClose = () => {
+    setValues({});
+    onClose();
+  };
+
+  const handleSave = async () => {
+    if (isAllContacts) {
+      if (!values.username?.trim() || !values.email?.trim()) {
+        toast.error('Username and Email are required');
+        return;
+      }
+    } else if (!values[emailColumn]?.trim()) {
+      toast.error(`${emailColumn} is required`);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      if (isAllContacts) {
+        await createContact({
+          username: values.username.trim(),
+          email: values.email.trim(),
+          first_name: values.first_name?.trim() || null,
+          last_name: values.last_name?.trim() || null,
+          mobile: values.mobile?.trim() || null,
+        });
+      } else {
+        await addContactToList(listId, values);
+      }
+      toast.success('Contact added');
+      setValues({});
+      onCreated();
+      onClose();
+    } catch (err) {
+      const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+      toast.error(typeof detail === 'string' ? detail : 'Failed to add contact');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
+        <h3 className="text-lg font-semibold mb-4">Add Contact</h3>
+
+        {isAllContacts ? (
+          ALL_CONTACT_FIELDS.map((field, i) => (
+            <div key={field.key} className="mb-3">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {field.label}
+                {field.required && <span className="text-red-500"> *</span>}
+              </label>
+              <input
+                type={field.key === 'email' ? 'email' : 'text'}
+                value={values[field.key] || ''}
+                onChange={(e) => setValue(field.key, e.target.value)}
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                autoFocus={i === 0}
+              />
+            </div>
+          ))
+        ) : (
+          listColumns.map((col, i) => (
+            <div key={col} className="mb-3">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {col}
+                {col === emailColumn && <span className="text-red-500"> *</span>}
+              </label>
+              <input
+                type="text"
+                value={values[col] || ''}
+                onChange={(e) => setValue(col, e.target.value)}
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                autoFocus={i === 0}
+              />
+            </div>
+          ))
+        )}
+
+        <div className="flex justify-end gap-3 mt-4">
+          <button
+            onClick={resetAndClose}
+            className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+            disabled={saving}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 text-sm disabled:opacity-50"
+          >
+            {saving ? 'Adding...' : 'Add Contact'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 
 function NewListModal({
@@ -36,12 +173,12 @@ function NewListModal({
       return;
     }
     if (!file) {
-      toast.error('Please select a CSV file');
+      toast.error('Please select a CSV or Excel file');
       return;
     }
     setCreating(true);
     try {
-      const text = await file.text();
+      const text = await fileToCsv(file);
       const list = await createContactList(name.trim(), text);
       toast.success(`Created "${list.name}" with ${list.contact_count} contacts`);
       onCreated(list);
@@ -70,11 +207,11 @@ function NewListModal({
           autoFocus
         />
 
-        <label className="block text-sm font-medium text-gray-700 mb-1">CSV File</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">CSV or Excel File</label>
         <input
           ref={fileRef}
           type="file"
-          accept=".csv"
+          accept={SPREADSHEET_ACCEPT}
           onChange={(e) => setFile(e.target.files?.[0] || null)}
           className="hidden"
         />
@@ -83,7 +220,7 @@ function NewListModal({
           onClick={() => fileRef.current?.click()}
           className="w-full border-2 border-dashed border-gray-300 rounded px-3 py-4 text-sm text-gray-500 hover:border-indigo-400 hover:text-indigo-600 transition mb-4"
         >
-          {file ? file.name : 'Click to select a CSV file'}
+          {file ? file.name : 'Click to select a CSV or Excel file'}
         </button>
 
         <div className="flex justify-end gap-3">
@@ -183,6 +320,7 @@ export default function Dashboard() {
   const [activeList, setActiveList] = useState<string>('all');
   const [allContactsTotal, setAllContactsTotal] = useState(0);
   const [showNewListModal, setShowNewListModal] = useState(false);
+  const [showAddContactModal, setShowAddContactModal] = useState(false);
 
   // Debounce search input by 300ms
   useEffect(() => {
@@ -236,13 +374,13 @@ export default function Dashboard() {
   const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.name.endsWith('.csv')) {
-      toast.error('Please select a CSV file');
+    if (!isSpreadsheetFile(file.name)) {
+      toast.error('Please select a CSV or Excel file');
       return;
     }
     setUploading(true);
     try {
-      const text = await file.text();
+      const text = await fileToCsv(file);
       const result = activeList === 'all'
         ? await uploadContactsCsv(text)
         : await uploadCsvToList(activeList, text);
@@ -257,7 +395,7 @@ export default function Dashboard() {
       setSelectedIds(new Set());
       fetchContacts();
     } catch {
-      toast.error('Failed to upload CSV');
+      toast.error('Failed to upload file');
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -310,10 +448,16 @@ export default function Dashboard() {
           >
             + Add New List
           </button>
+          <button
+            className="px-4 py-2 bg-white border border-indigo-600 text-indigo-600 rounded hover:bg-indigo-50 text-sm"
+            onClick={() => setShowAddContactModal(true)}
+          >
+            + Add Contact
+          </button>
           <input
             ref={fileInputRef}
             type="file"
-            accept=".csv"
+            accept={SPREADSHEET_ACCEPT}
             onChange={handleCsvUpload}
             className="hidden"
           />
@@ -405,6 +549,21 @@ export default function Dashboard() {
           </button>
         </div>
       )}
+
+      <AddContactModal
+        open={showAddContactModal}
+        onClose={() => setShowAddContactModal(false)}
+        listId={activeList}
+        columns={dynamicColumns}
+        onCreated={() => {
+          if (activeList !== 'all') {
+            setContactLists((prev) =>
+              prev.map((l) => l.id === activeList ? { ...l, contact_count: l.contact_count + 1 } : l)
+            );
+          }
+          fetchContacts();
+        }}
+      />
 
       <NewListModal
         open={showNewListModal}

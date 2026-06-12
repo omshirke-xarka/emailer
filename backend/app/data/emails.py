@@ -124,6 +124,8 @@ class EmailsService:
         recipient = RecipientTracking(**json.loads(recipient_json))
         recipient.send_status = send_status
         recipient.error_message = error_message
+        if send_status == "sent":
+            recipient.sent_at = datetime.now().isoformat()
         if send_status == "failed":
             recipient.failure_count += 1
         await redis_client.set(self._tracking_key(tracking_id), recipient.json())
@@ -150,16 +152,52 @@ class EmailsService:
         if email.status != 'scheduled':
             await redis_client.zrem(SCHEDULED_KEY, email_id)
     
-    async def record_open(self, tracking_id: str) -> None:
+    def _is_bot_request(self, recipient: RecipientTracking, user_agent: Optional[str], kind: str) -> bool:
+        """Detect automated scanner/prefetch hits that should not count as engagement.
+
+        Mail providers (Gmail, Outlook/Defender, corporate gateways) fetch pixels
+        and links right after delivery to scan for spam/malware. Real humans never
+        engage within seconds of the send, so hits inside the grace window are
+        discarded, as are known scanner user agents.
+        """
+        from app.config import get_settings
+        grace_seconds = get_settings().open_tracking_grace_seconds
+
+        if recipient.sent_at and grace_seconds > 0:
+            try:
+                elapsed = (datetime.now() - datetime.fromisoformat(recipient.sent_at)).total_seconds()
+                if 0 <= elapsed < grace_seconds:
+                    print(f"Ignoring {kind} for {recipient.email}: {elapsed:.1f}s after send (scanner prefetch), UA={user_agent}")
+                    return True
+            except ValueError:
+                pass
+
+        # GoogleImageProxy is NOT listed: all real Gmail opens come through it
+        bot_markers = (
+            'bot', 'spider', 'crawler', 'preview', 'scanner', 'scanning',
+            'barracuda', 'mimecast', 'proofpoint', 'urldefense', 'safelinks',
+            'symantec', 'trendmicro', 'cloudmark', 'headlesschrome', 'python-requests', 'curl/'
+        )
+        ua = (user_agent or '').lower()
+        if any(marker in ua for marker in bot_markers):
+            print(f"Ignoring {kind} for {recipient.email}: bot user agent '{user_agent}'")
+            return True
+
+        return False
+
+    async def record_open(self, tracking_id: str, user_agent: Optional[str] = None) -> None:
         """Record email open"""
         redis_client = await self._get_redis_client()
-        
+
         recipient_json = await redis_client.get(self._tracking_key(tracking_id))
         if not recipient_json:
             return
-        
+
         recipient = RecipientTracking(**json.loads(recipient_json))
-        
+
+        if self._is_bot_request(recipient, user_agent, "open"):
+            return
+
         # Update recipient
         is_first_open = recipient.opened_at is None
         recipient.open_count += 1
@@ -175,16 +213,19 @@ class EmailsService:
                 email.total_opens += 1
                 await redis_client.set(self._email_key(recipient.email_id), email.json())
     
-    async def record_click(self, tracking_id: str) -> None:
+    async def record_click(self, tracking_id: str, user_agent: Optional[str] = None) -> None:
         """Record email click"""
         redis_client = await self._get_redis_client()
-        
+
         recipient_json = await redis_client.get(self._tracking_key(tracking_id))
         if not recipient_json:
             return
-        
+
         recipient = RecipientTracking(**json.loads(recipient_json))
-        
+
+        if self._is_bot_request(recipient, user_agent, "click"):
+            return
+
         # Update recipient
         is_first_click = recipient.clicked_at is None
         recipient.click_count += 1

@@ -6,3 +6,4 @@ server/uploads/
 *.sqlite
 *.sqlite3
 .DS_Store
+.venv/

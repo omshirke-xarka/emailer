@@ -1,13 +1,13 @@
 """
 Contacts API routes
 """
-from typing import List, Optional
+from typing import Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 from app.data.contacts import contacts_service
 from app.models.contact import (
     Contact, ContactList, ContactListResponse, ContactListDynamicResponse,
-    ContactFilterValues, ContactUploadResponse
+    ContactFilterValues, ContactUploadResponse, DynamicContact
 )
 
 # Contact Lists endpoints
@@ -18,6 +18,18 @@ class ContactListCreate(BaseModel):
 
 class CsvUploadRequest(BaseModel):
     csv: str = Field(..., min_length=1, description="CSV content for contacts")
+
+class ContactCreate(BaseModel):
+    username: str = Field(..., min_length=1, description="Contact username")
+    email: EmailStr = Field(..., description="Contact email")
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    mobile: Optional[str] = None
+    subscribed: str = "No"
+    plan: str = "Free Trial"
+
+class ListContactCreate(BaseModel):
+    fields: Dict[str, str] = Field(..., description="Column values for the new contact")
 
 router = APIRouter()
 
@@ -43,6 +55,16 @@ async def get_contact_filters():
     """Get distinct filter values for dropdowns"""
     try:
         return await contacts_service.get_filter_values()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("", response_model=Contact)
+async def create_contact(request: ContactCreate):
+    """Create a single contact manually"""
+    try:
+        return await contacts_service.add_contact(request.dict())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -133,6 +155,20 @@ async def upload_csv_to_list(list_id: str, request: CsvUploadRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/lists/{list_id}/contacts", response_model=DynamicContact)
+async def add_contact_to_list(list_id: str, request: ListContactCreate):
+    """Add a single contact to a custom list manually"""
+    try:
+        if list_id == "all":
+            raise HTTPException(status_code=400, detail="Use POST /api/contacts to add to All Contacts")
+        return await contacts_service.add_contact_to_list(list_id, request.fields)
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

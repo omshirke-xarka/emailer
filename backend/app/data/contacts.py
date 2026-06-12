@@ -87,6 +87,60 @@ class ContactsService:
             "updated_contacts": updated_count
         }
     
+    async def add_contact(self, data: Dict[str, Any]) -> Contact:
+        """Add a single contact to All Contacts"""
+        await self.ensure_loaded()
+        contacts = await self.get_contacts()
+
+        email_key = data['email'].strip().lower()
+        if any(c.email and c.email.lower() == email_key for c in contacts):
+            raise ValueError("A contact with this email already exists")
+
+        now = datetime.now().isoformat()
+        contact = Contact(
+            id=max([c.id for c in contacts], default=0) + 1,
+            created_at=now,
+            updated_at=now,
+            **data
+        )
+        contacts.append(contact)
+
+        redis_client = await self._get_redis_client()
+        await redis_client.set(CONTACTS_KEY, json.dumps([c.dict() for c in contacts]))
+        return contact
+
+    async def add_contact_to_list(self, list_id: str, fields: Dict[str, str]) -> DynamicContact:
+        """Add a single contact to a custom contact list"""
+        list_meta = await self.get_contact_list_by_id(list_id)
+        if not list_meta:
+            raise ValueError("Contact list not found")
+
+        contacts = await self.get_contacts_for_list(list_id)
+        email_col = detect_email_column(list_meta.columns)
+        email_val = str(fields.get(email_col, '') or '').strip()
+        if not email_val:
+            raise ValueError(f"'{email_col}' is required")
+        if any(str(c.dict().get(email_col, '') or '').strip().lower() == email_val.lower() for c in contacts):
+            raise ValueError("A contact with this email already exists in this list")
+
+        contact_data: Dict[str, Any] = {'id': max([c.id for c in contacts], default=0) + 1}
+        for col in list_meta.columns:
+            contact_data[col] = str(fields.get(col, '') or '')
+        contact = DynamicContact(**contact_data)
+        contacts.append(contact)
+
+        redis_client = await self._get_redis_client()
+        await redis_client.set(f"contacts:list:{list_id}", json.dumps([c.dict() for c in contacts]))
+
+        # Update list metadata count
+        lists = await self.get_contact_lists()
+        list_entry = next((l for l in lists if l.id == list_id), None)
+        if list_entry:
+            list_entry.contact_count = len(contacts)
+            await redis_client.set(CONTACT_LISTS_KEY, json.dumps([l.dict() for l in lists]))
+
+        return contact
+
     async def get_contacts(self) -> List[Contact]:
         """Get all contacts"""
         try:

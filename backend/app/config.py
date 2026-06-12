@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     # Tracking Configuration
     tracking_base_url: Optional[str] = None
     enable_click_tracking: bool = False
+    # Opens/clicks within this many seconds of the send are treated as
+    # mail-provider scanner prefetches and ignored (0 disables the filter)
+    open_tracking_grace_seconds: int = 15
     
     # Blob Configuration
     blob_read_write_token: Optional[str] = None

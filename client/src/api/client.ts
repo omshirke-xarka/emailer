@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Contact, ContactsResponse, DynamicContact, DynamicContactsResponse, FilterOptions, Template, Email, EmailDetail, ContactList, EmailProvider } from '../types';
+import type { Contact, ContactsResponse, DynamicContactsResponse, FilterOptions, Template, Email, EmailDetail, ContactList, EmailProvider } from '../types';
 
 const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || '/api' });
 
@@ -18,9 +18,6 @@ export const deleteContact = (id: number) =>
 
 export const importContacts = (contacts: Partial<Contact>[]) =>
   api.post('/contacts/import', { contacts }).then((r) => r.data);
-
-export const addContactToList = (listId: string, fields: Record<string, string>) =>
-  api.post<DynamicContact>(`/contacts/lists/${listId}/contacts`, { fields }).then((r) => r.data);
 
 export const getFilterOptions = () =>
   api.get<FilterOptions>('/contacts/filters').then((r) => r.data);
@@ -46,19 +43,19 @@ export const deleteContactList = (listId: string) =>
 
 // Templates
 export const getTemplates = () =>
-  api.get<{ data: Template[] }>('/templates').then((r) => r.data.data);
+  api.get<{ data: Template[] }>('/templates/').then((r) => r.data.data);
 
 export const getTemplate = (id: string) =>
-  api.get<Template>(`/templates/${id}`).then((r) => r.data);
+  api.get<Template>(`/templates/${id}/`).then((r) => r.data);
 
 export const createTemplate = (data: Partial<Template>) =>
-  api.post<Template>('/templates', data).then((r) => r.data);
+  api.post<Template>('/templates/', data).then((r) => r.data);
 
 export const updateTemplate = (id: string, data: Partial<Template>) =>
-  api.put<Template>(`/templates/${id}`, data).then((r) => r.data);
+  api.put<Template>(`/templates/${id}/`, data).then((r) => r.data);
 
 export const deleteTemplate = (id: string) =>
-  api.delete(`/templates/${id}`);
+  api.delete(`/templates/${id}/`);
 
 // Emails
 export const sendEmail = (data: {

@@ -2,6 +2,7 @@
 Email tracking API routes
 """
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from app.data.emails import emails_service
 import base64
 
@@ -34,18 +35,13 @@ async def track_email_open(tracking_id: str, request: Request):
 async def track_email_click(tracking_id: str, url: str = None):
     """Track link click and redirect"""
     try:
-        # Record click in background
         import asyncio
         asyncio.create_task(emails_service.record_click(tracking_id))
         
-        # Validate and redirect URL
         if url and (url.startswith('https://') or url.startswith('http://')):
-            # In a real implementation, you'd return a redirect response
-            # For now, return the URL that should be redirected to
-            return {"redirect_url": url}
+            return RedirectResponse(url=url, status_code=302)
         else:
-            # Return home page URL
-            return {"redirect_url": "/"}
+        return RedirectResponse(url="/", status_code=302)
+
     except Exception as e:
-        # Don't fail the click request even if tracking fails
-        return {"redirect_url": "/"}
+        return RedirectResponse(url="/", status_code=302)

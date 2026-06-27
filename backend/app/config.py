@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     kv_rest_api_token: Optional[str] = None
     kv_rest_api_read_only_token: Optional[str] = None
     
+    # CORS Configuration
+    cors_origins: str = "*"
+    
     # Tracking Configuration
     tracking_base_url: Optional[str] = None
     open_tracking_grace_seconds: int = 10

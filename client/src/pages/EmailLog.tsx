@@ -18,6 +18,8 @@ export default function EmailLog() {
   const [detail, setDetail] = useState<EmailDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<'opens' | 'clicks' | 'failures' | null>(null);
+  const [detailSortBy, setDetailSortBy] = useState<'opens' | 'clicks' | 'failures' | null>(null);
 
   const loadEmails = useCallback(() => {
     setLoading(true);
@@ -73,11 +75,29 @@ export default function EmailLog() {
 
   if (detail) {
     const { email, recipients } = detail;
+
+    const sortedRecipients = [...recipients].sort((a, b) => {
+      if (!detailSortBy) return 0;
+      if (detailSortBy === 'opens') return b.open_count - a.open_count;
+      if (detailSortBy === 'clicks') return b.click_count - a.click_count;
+      if (detailSortBy === 'failures') return b.failure_count - a.failure_count;
+      return 0;
+    });
+
+    const detailSortButton = (key: 'opens' | 'clicks' | 'failures', label: string) => (
+      <button
+        className={`text-xs px-2 py-0.5 rounded ${detailSortBy === key ? 'bg-indigo-100 text-indigo-700 font-semibold' : 'text-gray-400 hover:text-gray-600'}`}
+        onClick={() => setDetailSortBy(detailSortBy === key ? null : key)}
+      >
+        {label} {detailSortBy === key ? '▼' : ''}
+      </button>
+    );
+
     return (
       <div>
         <button
           className="text-indigo-600 hover:underline text-sm mb-4"
-          onClick={() => setDetail(null)}
+          onClick={() => { setDetail(null); setDetailSortBy(null); }}
         >
           &larr; Back to Email Log
         </button>
@@ -121,15 +141,15 @@ export default function EmailLog() {
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Name</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Email</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Delivery</th>
-                <th className="text-center px-4 py-3 font-medium text-gray-600">Failures</th>
+                <th className="text-center px-4 py-3 font-medium text-gray-600">{detailSortButton('failures', 'Failures')}</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Opened</th>
-                <th className="text-center px-4 py-3 font-medium text-gray-600">Opens</th>
+                <th className="text-center px-4 py-3 font-medium text-gray-600">{detailSortButton('opens', 'Opens')}</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Clicked</th>
-                <th className="text-center px-4 py-3 font-medium text-gray-600">Clicks</th>
+                <th className="text-center px-4 py-3 font-medium text-gray-600">{detailSortButton('clicks', 'Clicks')}</th>
               </tr>
             </thead>
             <tbody className="divide-y">
-              {recipients.map((r) => (
+              {sortedRecipients.map((r) => (
                 <tr key={r.tracking_id} className="hover:bg-gray-50">
                   <td className="px-4 py-3">{r.name}</td>
                   <td className="px-4 py-3 text-gray-500">{r.email}</td>
@@ -173,6 +193,23 @@ export default function EmailLog() {
     );
   }
 
+  const sortedEmails = [...emails].sort((a, b) => {
+    if (!sortBy) return 0;
+    if (sortBy === 'opens') return b.total_opens - a.total_opens;
+    if (sortBy === 'clicks') return b.total_clicks - a.total_clicks;
+    if (sortBy === 'failures') return b.failure_count - a.failure_count;
+    return 0;
+  });
+
+  const sortButton = (key: 'opens' | 'clicks' | 'failures', label: string) => (
+    <button
+      className={`text-xs px-2 py-0.5 rounded ${sortBy === key ? 'bg-indigo-100 text-indigo-700 font-semibold' : 'text-gray-400 hover:text-gray-600'}`}
+      onClick={() => setSortBy(sortBy === key ? null : key)}
+    >
+      {label} {sortBy === key ? '▼' : ''}
+    </button>
+  );
+
   return (
     <div>
       <h2 className="text-2xl font-bold mb-4">Email Log</h2>
@@ -188,16 +225,15 @@ export default function EmailLog() {
               <tr>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Subject</th>
                 <th className="text-center px-4 py-3 font-medium text-gray-600">Recipients</th>
-                <th className="text-center px-4 py-3 font-medium text-gray-600">Opens</th>
-                <th className="text-center px-4 py-3 font-medium text-gray-600">Clicks</th>
+                <th className="text-center px-4 py-3 font-medium text-gray-600">{sortButton('opens', 'Opens')}</th>
+                <th className="text-center px-4 py-3 font-medium text-gray-600">{sortButton('clicks', 'Clicks')}</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
-                <th className="text-center px-4 py-3 font-medium text-gray-600">Failures</th>
+                <th className="text-center px-4 py-3 font-medium text-gray-600">{sortButton('failures', 'Failures')}</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Sent</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-600">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y">
-              {emails.map((e) => (
+              {sortedEmails.map((e) => (
                 <tr
                   key={e.id}
                   className="hover:bg-gray-50 cursor-pointer"
@@ -224,17 +260,7 @@ export default function EmailLog() {
                   </td>
                   <td className="px-4 py-3 text-center text-red-600">{e.failure_count}</td>
                   <td className="px-4 py-3 text-gray-500">{formatDate(e.sent_at)}</td>
-                  <td className="px-4 py-3 text-right">
-                    {canRetry(e) && (
-                      <button
-                        className="px-3 py-1.5 bg-indigo-600 text-white rounded text-xs font-medium hover:bg-indigo-700 disabled:opacity-50"
-                        onClick={(event) => handleRetry(e, event)}
-                        disabled={retryingId === e.id}
-                      >
-                        {retryingId === e.id ? 'Retrying...' : 'Retry'}
-                      </button>
-                    )}
-                  </td>
+
                 </tr>
               ))}
             </tbody>

@@ -41,7 +41,7 @@ async def track_email_click(tracking_id: str, url: str = None):
         if url and (url.startswith('https://') or url.startswith('http://')):
             return RedirectResponse(url=url, status_code=302)
         else:
-        return RedirectResponse(url="/", status_code=302)
+            return RedirectResponse(url="/", status_code=302)
 
     except Exception as e:
         return RedirectResponse(url="/", status_code=302)

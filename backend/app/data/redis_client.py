@@ -63,16 +63,6 @@ class RedisClient:
         await self.connect()
         return await self.redis.zrem(key, members)
     
-    async def lpush(self, key: str, *values):
-        """Push values onto the head of a list"""
-        await self.connect()
-        return await self.redis.lpush(key, *values)
-
-    async def ltrim(self, key: str, start: int, stop: int):
-        """Trim a list to the given range"""
-        await self.connect()
-        return await self.redis.ltrim(key, start, stop)
-
     async def mget(self, *keys):
         """Get multiple values"""
         await self.connect()

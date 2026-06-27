@@ -166,8 +166,11 @@ class EmailService:
         """Send email to standard contacts"""
         contacts = await contacts_service.get_contacts_by_ids(contact_ids)
         sent = 0
+        failed = 0
         found_ids = {contact.id for contact in contacts}
-        failed = len(set(contact_ids) - found_ids)
+        missing_ids = set(contact_ids) - found_ids
+        if missing_ids:
+            print(f"Skipped {len(missing_ids)} contact(s) not found: {missing_ids}")
         
         for contact in contacts:
             tracking_id = None
@@ -221,8 +224,11 @@ class EmailService:
         email_col = detect_email_column(columns)
         name_col = detect_name_column(columns)
         sent = 0
+        failed = 0
         found_ids = {contact.id for contact in list_contacts}
-        failed = len(set(contact_ids) - found_ids)
+        missing_ids = set(contact_ids) - found_ids
+        if missing_ids:
+            print(f"Skipped {len(missing_ids)} contact(s) not found in list: {missing_ids}")
         
         for contact in list_contacts:
             tracking_id = None

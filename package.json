@@ -6,9 +6,8 @@
     "client"
   ],
   "scripts": {
-    "dev": "concurrently -n redis,server,client \"npm run dev:redis\" \"npm run dev:server\" \"npm run dev:client\"",
-    "dev:redis": "docker compose -f backend/docker-compose.yml up -d redis",
-    "dev:server": "node scripts/dev-backend.mjs",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "cd backend && python main.py",
     "dev:client": "npm run dev --workspace=client",
     "build": "npm run build --workspace=client"
   },

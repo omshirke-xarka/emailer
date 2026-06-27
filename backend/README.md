@@ -68,7 +68,6 @@ Environment variables (see `.env.example`):
 - `EMAIL_RATE_LIMIT_MS`: Minimum interval between emails (ms)
 - `EMAIL_MAX_PER_MINUTE`: Max emails per minute
 - `EMAIL_MAX_PER_HOUR`: Max emails per hour
-- `ENABLE_CLICK_TRACKING`: Rewrite links through `/api/track/click` when `true` (default: `false`)
 
 ## API Endpoints
 

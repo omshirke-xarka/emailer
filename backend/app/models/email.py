@@ -29,7 +29,6 @@ class RecipientTracking(BaseModel):
     email: EmailStr
     name: str
     send_status: str = "pending"
-    sent_at: Optional[str] = None
     error_message: Optional[str] = None
     failure_count: int = 0
     opened_at: Optional[str] = None

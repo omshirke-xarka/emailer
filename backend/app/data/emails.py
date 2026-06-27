@@ -124,8 +124,6 @@ class EmailsService:
         recipient = RecipientTracking(**json.loads(recipient_json))
         recipient.send_status = send_status
         recipient.error_message = error_message
-        if send_status == "sent":
-            recipient.sent_at = datetime.now().isoformat()
         if send_status == "failed":
             recipient.failure_count += 1
         await redis_client.set(self._tracking_key(tracking_id), recipient.json())
@@ -152,80 +150,16 @@ class EmailsService:
         if email.status != 'scheduled':
             await redis_client.zrem(SCHEDULED_KEY, email_id)
     
-    def _classify_hit(self, recipient: RecipientTracking, user_agent: Optional[str]):
-        """Detect automated scanner/prefetch hits that should not count as engagement.
-
-        Mail providers (Gmail, Outlook/Defender, corporate gateways) fetch pixels
-        and links right after delivery to scan for spam/malware. Real humans never
-        engage within seconds of the send, so hits inside the grace window are
-        discarded, as are known scanner user agents.
-
-        Returns (ignored_reason, seconds_after_send); reason is None for real hits.
-        """
-        from app.config import get_settings
-        grace_seconds = get_settings().open_tracking_grace_seconds
-
-        elapsed = None
-        if recipient.sent_at:
-            try:
-                elapsed = (datetime.now() - datetime.fromisoformat(recipient.sent_at)).total_seconds()
-            except ValueError:
-                pass
-
-        if elapsed is not None and grace_seconds > 0 and 0 <= elapsed < grace_seconds:
-            return "scanner-prefetch", elapsed
-
-        # GoogleImageProxy is NOT listed: all real Gmail opens come through it
-        bot_markers = (
-            'bot', 'spider', 'crawler', 'preview', 'scanner', 'scanning',
-            'barracuda', 'mimecast', 'proofpoint', 'urldefense', 'safelinks',
-            'symantec', 'trendmicro', 'cloudmark', 'headlesschrome', 'python-requests', 'curl/'
-        )
-        ua = (user_agent or '').lower()
-        if any(marker in ua for marker in bot_markers):
-            return "bot-user-agent", elapsed
-
-        return None, elapsed
-
-    async def _log_hit(self, redis_client, kind: str, recipient: RecipientTracking,
-                       user_agent: Optional[str], ignored_reason: Optional[str],
-                       elapsed: Optional[float]) -> None:
-        """Keep a capped log of every tracking hit for debugging."""
-        entry = {
-            "ts": datetime.now().isoformat(),
-            "kind": kind,
-            "email": recipient.email,
-            "tracking_id": recipient.tracking_id,
-            "user_agent": user_agent,
-            "seconds_after_send": round(elapsed, 1) if elapsed is not None else None,
-            "ignored_reason": ignored_reason,
-        }
-        await redis_client.lpush("tracking:hits", json.dumps(entry))
-        await redis_client.ltrim("tracking:hits", 0, 199)
-
-    async def _screen_hit(self, redis_client, kind: str, recipient: RecipientTracking,
-                          user_agent: Optional[str]) -> bool:
-        """Log the hit and return True if it should be ignored."""
-        reason, elapsed = self._classify_hit(recipient, user_agent)
-        await self._log_hit(redis_client, kind, recipient, user_agent, reason, elapsed)
-        if reason:
-            print(f"Ignoring {kind} for {recipient.email}: {reason} ({elapsed}s after send), UA={user_agent}")
-            return True
-        return False
-
-    async def record_open(self, tracking_id: str, user_agent: Optional[str] = None) -> None:
+    async def record_open(self, tracking_id: str) -> None:
         """Record email open"""
         redis_client = await self._get_redis_client()
-
+        
         recipient_json = await redis_client.get(self._tracking_key(tracking_id))
         if not recipient_json:
             return
-
+        
         recipient = RecipientTracking(**json.loads(recipient_json))
-
-        if await self._screen_hit(redis_client, "open", recipient, user_agent):
-            return
-
+        
         # Update recipient
         is_first_open = recipient.opened_at is None
         recipient.open_count += 1
@@ -241,19 +175,16 @@ class EmailsService:
                 email.total_opens += 1
                 await redis_client.set(self._email_key(recipient.email_id), email.json())
     
-    async def record_click(self, tracking_id: str, user_agent: Optional[str] = None) -> None:
+    async def record_click(self, tracking_id: str) -> None:
         """Record email click"""
         redis_client = await self._get_redis_client()
-
+        
         recipient_json = await redis_client.get(self._tracking_key(tracking_id))
         if not recipient_json:
             return
-
+        
         recipient = RecipientTracking(**json.loads(recipient_json))
-
-        if await self._screen_hit(redis_client, "click", recipient, user_agent):
-            return
-
+        
         # Update recipient
         is_first_click = recipient.clicked_at is None
         recipient.click_count += 1
